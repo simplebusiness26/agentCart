@@ -1,0 +1,29 @@
+type = "web_pixel_extension"
+name = "AgentCart Attribution"
+uid = "e3f78b0d-8d5c-4d07-a4f5-8e1d4e1a8c21"
+runtime_context = "strict"
+
+[customer_privacy]
+analytics = true
+marketing = false
+preferences = false
+sale_of_data = "disabled"
+
+[settings]
+type = "object"
+
+[settings.fields.endpoint]
+name = "Event endpoint"
+description = "AgentCart Worker event ingestion URL"
+type = "single_line_text_field"
+validations = [
+  { name = "min", value = "8" }
+]
+
+[settings.fields.shop]
+name = "Shop domain"
+description = "Canonical *.myshopify.com domain"
+type = "single_line_text_field"
+validations = [
+  { name = "min", value = "3" }
+]
