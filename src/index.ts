@@ -87,7 +87,7 @@ async function route(request:Request,env:Env):Promise<Response>{
       const pixelId=await createWebPixel(env,shop,token);
       if(pixelId)await updatePixelId(env,shop,pixelId);
       const cookie=await sessionCookie(env.SHOPIFY_API_SECRET,shop);
-      return Response.redirect(`${env.APP_URL}/dashboard`,302,{headers:{"set-cookie":cookie}} as any);
+      return new Response(null,{status:302,headers:{location:`${env.APP_URL}/dashboard`,"set-cookie":cookie}});
     }catch(e){return json({error:e instanceof Error?e.message:"Shopify setup failed"},500);}
   }
 
