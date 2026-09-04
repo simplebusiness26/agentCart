@@ -1,0 +1,32 @@
+# Copy this file to shopify.app.toml after creating the Shopify app.
+# Replace every REPLACE_* value before `shopify app deploy`.
+
+client_id = "REPLACE_WITH_SHOPIFY_CLIENT_ID"
+name = "AgentCart"
+application_url = "https://REPLACE_WITH_AGENTCART_URL"
+embedded = false
+
+[access_scopes]
+scopes = "read_products,write_pixels,read_customer_events"
+
+[auth]
+redirect_urls = [
+  "https://REPLACE_WITH_AGENTCART_URL/api/shopify/callback"
+]
+
+[webhooks]
+api_version = "2026-07"
+
+[[webhooks.subscriptions]]
+topics = ["app/uninstalled"]
+uri = "/api/shopify/webhooks"
+
+[[webhooks.subscriptions]]
+compliance_topics = ["customers/data_request", "customers/redact", "shop/redact"]
+uri = "/api/shopify/webhooks"
+
+[pos]
+embedded = false
+
+[build]
+automatically_update_urls_on_dev = false
