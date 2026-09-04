@@ -23,7 +23,10 @@ export function installUrl(env:Env,shop:string,state:string){
 
 export async function verifyOAuthHmac(url:URL,secret:string){
   const given=url.searchParams.get("hmac")||"";
-  const message=[...url.searchParams.entries()].filter(([k])=>k!=="hmac"&&k!=="signature").sort(([a],[b])=>a.localeCompare(b)).map(([k,v])=>`${k}=${v}`).join("&");
+  const params:Array<[string,string]>=[];
+  url.searchParams.forEach((value,key)=>{if(key!=="hmac"&&key!=="signature")params.push([key,value]);});
+  params.sort(([a],[b])=>a.localeCompare(b));
+  const message=params.map(([key,value])=>`${key}=${value}`).join("&");
   return safeEqual(given,hex(await hmacBytes(secret,message)));
 }
 
