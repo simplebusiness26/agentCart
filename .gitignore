@@ -1,0 +1,8 @@
+node_modules/
+.wrangler/
+.dev.vars
+.env
+shopify.app.toml
+.DS_Store
+coverage/
+dist/
