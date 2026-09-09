@@ -4,6 +4,7 @@ import { getFindings, getScanComparison, getScanHistory, recordFailedScan, saveS
 import { ShopifyScopeError, getBusinessProfile, getLastSync, syncConnectedStore } from "./platform";
 import { buildProfile, ensureProfile, getActions, getCatalogView, getItemView, getPolicies, getProfileMeta, resolveSlug, searchCatalogView, setProfileActive } from "./ailayer/service";
 import { handleMcp } from "./ailayer/mcp";
+import { ApprovalRequiredError, applyAllAutomatic, applyFix, approveFix, listFixes, proposeFixes } from "./fixes";
 import { consumeOAuthState, countCustomerEvents, deleteShop, getDashboardWindows, getShop, insertEvent, logComplianceRequest, putOAuthState, rateLimit, redactCustomer, saveOrder, saveShop, setIngestToken, updatePixelId } from "./db";
 import { createWebPixel, encryptToken, exchangeCode, installUrl, normalizeOrderId, pixelSettings, randomState, parseSession, safeCompare, sessionCookie, validShop, verifyOAuthHmac, verifyWebhookHmac, webPixelUpdate } from "./shopify";
 import { agentReadyPage, aiProfilePage, dashboardPage, errorPage, homePage, privacyPage, setupPage, termsPage } from "./ui";
@@ -227,6 +228,52 @@ async function route(request:Request,env:Env):Promise<Response>{
       publicUrl:`${env.APP_URL}/ai/${slug}`,apiUrl:`${env.APP_URL}/api/ai/${slug}/profile`,
       mcpUrl:`${env.APP_URL}/api/ai/${slug}/mcp`,
       lastGenerated:meta?.last_generated_ms?new Date(Number(meta.last_generated_ms)).toISOString():null});
+  }
+
+  if(path==="/api/fixes"&&request.method==="GET"){
+    const shop=await sessionShop(request,env);
+    if(!shop)return json({error:"No connected Shopify session."},401);
+    const fixes=await listFixes(env,shop);
+    // Grouped the way the UI presents them: what we can do, what needs you, what we cannot.
+    return json({
+      automatic:fixes.filter(f=>f.fix_type!=="approval_required"&&f.status==="proposed"),
+      needsApproval:fixes.filter(f=>f.fix_type==="approval_required"&&f.status==="proposed"),
+      inProgress:fixes.filter(f=>f.status==="approved"||f.status==="applying"||f.status==="applied"),
+      done:fixes.filter(f=>f.status==="verified"),
+      failed:fixes.filter(f=>f.status==="failed")
+    });
+  }
+
+  if(path==="/api/fixes/propose"&&request.method==="POST"){
+    const shop=await sessionShop(request,env);
+    if(!shop)return json({error:"No connected Shopify session."},401);
+    const gate=await rateLimit(env,"fixes",shop,10,300000).catch(()=>({ok:true,retryAfter:0}));
+    if(!gate.ok)return json({error:"Try again in a few minutes."},429,{"retry-after":String(gate.retryAfter)});
+    try{return json({proposed:await proposeFixes(env,shop,"shopify")});}
+    catch(e){
+      if(e instanceof ShopifyScopeError)return json({error:e.message,needsReauthorization:true},403);
+      return json({error:e instanceof Error?e.message:"Could not work out what can be fixed."},502);
+    }
+  }
+
+  if(path.startsWith("/api/fixes/")&&request.method==="POST"){
+    const shop=await sessionShop(request,env);
+    if(!shop)return json({error:"No connected Shopify session."},401);
+    const [id,action]=path.slice("/api/fixes/".length).split("/");
+    if(!id)return json({error:"No fix identified."},400);
+    try{
+      if(action==="approve"){
+        const row=await approveFix(env,shop,id);
+        return row?json({fix:row}):json({error:"No such fix."},404);
+      }
+      if(action==="apply")return json({fix:await applyFix(env,shop,id)});
+      if(action==="apply-automatic")return json({applied:await applyAllAutomatic(env,shop)});
+      return json({error:"Unknown action."},404);
+    }catch(e){
+      if(e instanceof ApprovalRequiredError)return json({error:e.message,needsApproval:true},403);
+      if(e instanceof ShopifyScopeError)return json({error:e.message,needsReauthorization:true},403);
+      return json({error:e instanceof Error?e.message:"That fix could not be applied."},502);
+    }
   }
 
   if(request.method==="GET"&&path==="/api/dashboard"){
