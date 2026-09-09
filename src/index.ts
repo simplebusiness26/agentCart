@@ -1,5 +1,7 @@
 import type { Env, PixelEventPayload, WebhookBody } from "./types";
 import { scanWebsite } from "./scanner";
+import { assessSite } from "./agentready";
+import { getFindings, getScanComparison, getScanHistory, recordFailedScan, saveScanRun } from "./agentready/store";
 import { consumeOAuthState, countCustomerEvents, deleteShop, getDashboardWindows, getShop, insertEvent, logComplianceRequest, putOAuthState, rateLimit, redactCustomer, saveOrder, saveScan, saveShop, setIngestToken, updatePixelId } from "./db";
 import { createWebPixel, encryptToken, exchangeCode, installUrl, normalizeOrderId, pixelSettings, randomState, parseSession, safeCompare, sessionCookie, validShop, verifyOAuthHmac, verifyWebhookHmac, webPixelUpdate } from "./shopify";
 import { dashboardPage, errorPage, homePage, privacyPage, scanPage, setupPage, termsPage } from "./ui";
@@ -49,6 +51,13 @@ const demoData={
 // The scanner makes outbound fetches on behalf of anonymous callers, so it is gated
 // per client IP. Falls open if the limiter itself fails -- a broken counter should not
 // take the public scanner offline.
+// Best-effort domain for recording a failed run; a target we cannot even parse is
+// recorded under its raw trimmed value rather than being dropped silently.
+function safeDomain(input:string){
+  try{return new URL(/^https?:\/\//i.test(input)?input:`https://${input}`).hostname.toLowerCase();}
+  catch{return input.trim().slice(0,120).toLowerCase();}
+}
+
 async function scanGate(request:Request,env:Env){
   try{return await rateLimit(env,"scan",request.headers.get("cf-connecting-ip")||"unknown",10,60000);}
   catch{return {ok:true,count:0,limit:10,retryAfter:0};}
@@ -90,12 +99,33 @@ async function route(request:Request,env:Env):Promise<Response>{
   if(request.method==="POST"&&path==="/api/scan"){
     const gate=await scanGate(request,env);
     if(!gate.ok)return json({error:"Rate limit exceeded. Try again shortly."},429,{"retry-after":String(gate.retryAfter)});
+    let target="";
     try{
       const body=await request.json<{url?:string}>();
-      const result=await scanWebsite(body.url||"");
-      await saveScan(env,result.domain,result.score,result.findings).catch(()=>{});
-      return json(result);
-    }catch(e){return json({error:e instanceof Error?e.message:"Scan failed"},400);}
+      target=body.url||"";
+      const report=await assessSite(target);
+      const runId=await saveScanRun(env,report).catch(()=>null);
+      const comparison=await getScanComparison(env,report.domain).catch(()=>null);
+      return json({...report,runId,comparison});
+    }catch(e){
+      const message=e instanceof Error?e.message:"Scan failed";
+      if(target)await recordFailedScan(env,safeDomain(target),message).catch(()=>{});
+      return json({error:message},400);
+    }
+  }
+
+  if(request.method==="GET"&&path.startsWith("/api/report/")){
+    const domain=decodeURIComponent(path.slice("/api/report/".length)).toLowerCase();
+    if(!domain)return json({error:"No domain supplied."},400);
+    const comparison=await getScanComparison(env,domain);
+    if(!comparison)return json({error:"That website has not been scanned yet."},404);
+    return json({comparison,findings:await getFindings(env,String(comparison.latest.id))});
+  }
+
+  if(request.method==="GET"&&path.startsWith("/api/history/")){
+    const domain=decodeURIComponent(path.slice("/api/history/".length)).toLowerCase();
+    if(!domain)return json({error:"No domain supplied."},400);
+    return json({domain,history:await getScanHistory(env,domain)});
   }
 
   if(request.method==="GET"&&path==="/connect"){
