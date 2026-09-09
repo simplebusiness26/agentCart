@@ -16,6 +16,7 @@ async function hmacBytes(secret:string,message:string){
 function hex(bytes:Uint8Array){return Array.from(bytes,b=>b.toString(16).padStart(2,"0")).join("");}
 function b64(bytes:Uint8Array){let s="";for(const b of bytes)s+=String.fromCharCode(b);return btoa(s);}
 function fromB64(value:string){const s=atob(value);return Uint8Array.from(s,c=>c.charCodeAt(0));}
+export function safeCompare(a:string,b:string){return safeEqual(a,b);}
 function safeEqual(a:string,b:string){if(a.length!==b.length)return false;let x=0;for(let i=0;i<a.length;i++)x|=a.charCodeAt(i)^b.charCodeAt(i);return x===0;}
 
 export function installUrl(env:Env,shop:string,state:string){
@@ -56,9 +57,37 @@ export async function decryptToken(value:string,secret:string){
   return new TextDecoder().decode(out);
 }
 
-export async function createWebPixel(env:Env,shop:string,accessToken:string){
+export function pixelSettings(env:Env,shop:string,token:string){
+  return {endpoint:`${env.APP_URL}/api/events`,shop,token};
+}
+
+// Shopify rejects webPixelCreate when the app already has a pixel on the shop, which
+// happens on every reinstall. Updating instead also lets a changed APP_URL or rotated
+// ingest token propagate. This is the production caller for decryptToken.
+export async function webPixelUpdate(env:Env,shop:string,accessToken:string,pixelId:string,settings:Record<string,string>){
+  const query=`mutation Pixel($id: ID!, $webPixel: WebPixelInput!){webPixelUpdate(id:$id,webPixel:$webPixel){webPixel{id} userErrors{field message code}}}`;
+  const res=await fetch(`https://${shop}/admin/api/${env.SHOPIFY_API_VERSION}/graphql.json`,{method:"POST",headers:{"content-type":"application/json","x-shopify-access-token":accessToken},body:JSON.stringify({query,variables:{id:pixelId,webPixel:{settings}}})});
+  if(!res.ok)throw new Error(`Could not update AgentCart pixel (${res.status}).`);
+  const json=await res.json<any>();
+  const result=json?.data?.webPixelUpdate;
+  if(result?.userErrors?.length)throw new Error(result.userErrors.map((e:any)=>e.message).join("; "));
+  return result?.webPixel?.id as string|undefined;
+}
+
+// The pixel reports checkout.order.id; the orders webhook reports a numeric id and a
+// gid:// global id. Reduce both to the trailing digits so the two can be joined. Kept
+// deliberately tolerant: the real pixel format cannot be confirmed without a live store,
+// and a tolerant normalizer degrades to a missed join rather than to silent zero revenue.
+export function normalizeOrderId(value:unknown){
+  const raw=String(value??"").trim();
+  if(!raw)return "";
+  const digits=raw.match(/(\d+)\s*$/);
+  return digits?digits[1]:raw.toLowerCase();
+}
+
+export async function createWebPixel(env:Env,shop:string,accessToken:string,settings?:Record<string,string>){
   const query=`mutation Pixel($webPixel: WebPixelInput!){webPixelCreate(webPixel:$webPixel){webPixel{id settings} userErrors{field message code}}}`;
-  const variables={webPixel:{settings:{endpoint:`${env.APP_URL}/api/events`,shop}}};
+  const variables={webPixel:{settings:settings??{endpoint:`${env.APP_URL}/api/events`,shop}}};
   const res=await fetch(`https://${shop}/admin/api/${env.SHOPIFY_API_VERSION}/graphql.json`,{method:"POST",headers:{"content-type":"application/json","x-shopify-access-token":accessToken},body:JSON.stringify({query,variables})});
   if(!res.ok)throw new Error(`Could not activate AgentCart pixel (${res.status}).`);
   const json=await res.json<any>();

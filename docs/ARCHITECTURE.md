@@ -77,7 +77,24 @@ The MVP dashboard deliberately reports the first category.
   linked to them; `customers/data_request` is recorded with a count of matching records for
   merchant fulfilment. Unknown topics return 200 so Shopify does not retry indefinitely.
 - Expired OAuth states are swept on each install attempt.
-- Pixel ingestion accepts only installed store domains and deduplicates event IDs.
+- Pixel ingestion accepts only installed store domains, requires a per-shop ingest token,
+  is rate limited per shop, and deduplicates event IDs per shop.
+
+### What each ingestion control actually guarantees
+
+Stated plainly, because it is easy to imply more than is true:
+
+| Layer | Guarantee | Non-guarantee |
+| --- | --- | --- |
+| HMAC-verified `orders/paid` webhook | Revenue and order counts cannot be forged without `SHOPIFY_API_SECRET`. This is the only hard guarantee. | Dormant until `read_orders` is granted. Gross revenue only; refunds are not deducted. |
+| Per-shop ingest token | None cryptographically. The pixel runs in the browser, so the token is extractable by anyone who loads the storefront. | Raises attacker effort from "know a `.myshopify.com` domain" to "visit the store once". It kills drive-by spraying against a domain list; nothing more. |
+| `Origin` header | None against non-browser clients, which can set any value. | Recorded but **not enforced**. The pixel runs in a strict sandbox and its real `Origin` cannot be confirmed without a live store; enforcing a guess would silently zero every merchant dashboard. |
+| Per-shop rate limit | Caps how much pollution one shop can absorb, and caps D1 write spend. | Does not prevent forgery. |
+| `access-control-allow-origin: *` | Nothing. CORS is a browser policy, not a server-side authorization control. | Required for the pixel to post at all. |
+
+Consequently the dashboard labels revenue **Reported** until verified order records exist,
+and **Verified** once they do. An attacker who has visited a storefront can still inflate
+that store's visit and funnel counts; they cannot inflate verified orders or revenue.
 - No card details are collected.
 - The current app does not request customer email, phone, or address fields.
 

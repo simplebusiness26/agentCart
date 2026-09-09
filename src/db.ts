@@ -24,7 +24,7 @@ export async function saveShop(env:Env,shop:string,encryptedToken:string,pixelId
 }
 
 export async function getShop(env:Env,shop:string){
-  return env.DB.prepare("SELECT shop_domain,encrypted_access_token,pixel_id,session_epoch FROM shops WHERE shop_domain=?").bind(shop).first<{shop_domain:string;encrypted_access_token:string;pixel_id:string|null;session_epoch:number}>();
+  return env.DB.prepare("SELECT shop_domain,encrypted_access_token,pixel_id,session_epoch,ingest_token FROM shops WHERE shop_domain=?").bind(shop).first<{shop_domain:string;encrypted_access_token:string;pixel_id:string|null;session_epoch:number;ingest_token:string|null}>();
 }
 
 export async function updatePixelId(env:Env,shop:string,pixelId:string){
@@ -133,7 +133,20 @@ export async function getDashboardWindows(env:Env,shop:string,nowMs:number){
   const anchor=nowMs+1;
   const current=await getDashboard(env,shop,anchor-WINDOW_MS,anchor);
   const prior=await getDashboard(env,shop,anchor-2*WINDOW_MS,anchor-WINDOW_MS);
-  return {...current,previous:prior.summary};
+  // Prefer HMAC-verified order records when they exist. They cannot be forged from a
+  // browser, unlike pixel-reported revenue. Until read_orders is granted the orders
+  // table stays empty and we fall back, flagging the numbers as reported.
+  const verifiedCount=await countOrders(env,shop,anchor-WINDOW_MS,anchor).catch(()=>0);
+  if(!verifiedCount)return {...current,previous:prior.summary,verified:false};
+  const verifiedSources=await getVerifiedSources(env,shop,anchor-WINDOW_MS,anchor);
+  const orders=verifiedSources.reduce((n,r)=>n+Number(r.orders||0),0);
+  const revenue=verifiedSources.reduce((n,r)=>n+Number(r.revenue||0),0);
+  const bySource=new Map(verifiedSources.map(r=>[r.source,r]));
+  const sources=(current.sources as Array<Record<string,unknown>>).map(row=>{
+    const v=bySource.get(String(row.source));bySource.delete(String(row.source));
+    return {...row,orders:Number(v?.orders||0),revenue:Number(v?.revenue||0)};
+  }).concat([...bySource.values()].map(v=>({source:v.source,visits:0,orders:v.orders,revenue:v.revenue})));
+  return {...current,sources,summary:{...(current.summary as object),orders,revenue},previous:prior.summary,verified:true};
 }
 
 // Fixed-window rate limiting in D1. Cloudflare's native rate-limit binding would avoid
@@ -147,4 +160,37 @@ export async function rateLimit(env:Env,kind:string,key:string,limit:number,wind
   const count=Number(row?.count||1);
   if(count===1)await env.DB.prepare("DELETE FROM rate_buckets WHERE expires_at<?").bind(now).run().catch(()=>{});
   return {ok:count<=limit,count,limit,retryAfter:Math.ceil((Math.floor(now/windowMs)*windowMs+windowMs-now)/1000)};
+}
+
+export async function setIngestToken(env:Env,shop:string,token:string){
+  await env.DB.prepare("UPDATE shops SET ingest_token=?,updated_at=CURRENT_TIMESTAMP WHERE shop_domain=?").bind(token,shop).run();
+}
+
+export async function saveOrder(env:Env,shop:string,orderId:string,normalizedId:string,total:number|null,currency:string|null,processedMs:number|null){
+  await env.DB.prepare(`INSERT INTO orders(shop_domain,order_id,normalized_id,total,currency,processed_ms)
+    VALUES(?,?,?,?,?,?)
+    ON CONFLICT(shop_domain,order_id) DO UPDATE SET total=excluded.total,currency=excluded.currency,
+    normalized_id=excluded.normalized_id,processed_ms=excluded.processed_ms`)
+    .bind(shop,orderId,normalizedId,total,currency,processedMs).run();
+}
+
+export async function countOrders(env:Env,shop:string,fromMs:number,toMs:number){
+  const row=await env.DB.prepare("SELECT COUNT(*) AS c FROM orders WHERE shop_domain=? AND processed_ms>=? AND processed_ms<?")
+    .bind(shop,fromMs,toMs).first<{c:number}>();
+  return Number(row?.c||0);
+}
+
+// Authoritative revenue: order rows are HMAC-verified, so they cannot be forged by a
+// browser. Attribution still comes from the pixel, joined on the normalized order id;
+// orders with no matching pixel event are reported as unattributed rather than guessed.
+export async function getVerifiedSources(env:Env,shop:string,fromMs:number,toMs:number){
+  const rows=await env.DB.prepare(`SELECT COALESCE(e.source_agent,'Direct / unknown') AS source,
+      COUNT(DISTINCT o.order_id) AS orders,
+      COALESCE(SUM(o.total),0) AS revenue
+    FROM orders o
+    LEFT JOIN (SELECT DISTINCT shop_domain,order_id,source_agent FROM events WHERE event_type='checkout_completed' AND order_id IS NOT NULL) e
+      ON e.shop_domain=o.shop_domain AND e.order_id=o.normalized_id
+    WHERE o.shop_domain=? AND o.processed_ms>=? AND o.processed_ms<?
+    GROUP BY source ORDER BY revenue DESC`).bind(shop,fromMs,toMs).all();
+  return rows.results as Array<{source:string;orders:number;revenue:number}>;
 }

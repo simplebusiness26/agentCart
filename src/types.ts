@@ -46,6 +46,13 @@ export interface PixelEventPayload {
 
 export interface WebhookBody {
   shop_domain?: string;
+  id?: string|number;
+  admin_graphql_api_id?: string;
+  current_total_price?: string|number;
+  total_price?: string|number;
+  currency?: string;
+  processed_at?: string;
+  created_at?: string;
   customer?: { id?: string|number; email?: string };
   orders_requested?: Array<string|number>;
   orders_to_redact?: Array<string|number>;

@@ -5,6 +5,7 @@ register(({analytics,browser,settings})=>{
   const sourceKey='agentcart_source_referrer';
   const endpoint=String(settings.endpoint||'');
   const shop=String(settings.shop||'');
+  const token=String(settings.token||'');
 
   const send=async(event:PixelEvent)=>{
     if(!endpoint||!shop)return;
@@ -38,7 +39,7 @@ register(({analytics,browser,settings})=>{
       raw:{seq:event?.seq||0,name:event?.name||'unknown'}
     };
 
-    fetch(endpoint,{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify(payload),keepalive:true}).catch(()=>{});
+    fetch(endpoint,{method:'POST',headers:{'content-type':'application/json','x-agentcart-token':token},body:JSON.stringify(payload),keepalive:true}).catch(()=>{});
   };
 
   analytics.subscribe('page_viewed',send);

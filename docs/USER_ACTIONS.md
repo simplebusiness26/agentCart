@@ -62,6 +62,24 @@ Everything below requires access to an external account, a credential, an approv
 
 11. Review the Privacy Policy and Terms for the actual business/jurisdictions before accepting paying customers. The included versions are product-ready drafts, not a substitute for legal review.
 
+## Optional: enable verified revenue
+
+AgentCart currently reports revenue from the storefront pixel and labels it **Reported**
+in the dashboard, because a browser-side pixel can be forged by anyone who visits the
+store. The code to replace this with cryptographically verified order records is already
+written and tested; it is dormant because enabling it needs an approval you must request:
+
+1. In the Shopify Partner Dashboard, request access to **Protected Customer Data** and
+   complete the data-protection questionnaire for this app.
+2. Once approved, add `read_orders` to the scopes in `shopify.app.toml`.
+3. Uncomment the `orders/paid` webhook subscription in the same file.
+4. Redeploy and reinstall on the development store to grant the new scope.
+
+The dashboard then switches its own label from Reported to Verified. Note this also
+changes what the app requests, so the privacy copy stating that AgentCart requests no
+customer email, phone or address should be re-checked at that point -- the handler
+deliberately stores none of those fields, and a test asserts it.
+
 ## Optional later
 
 - Custom domain for AgentCart

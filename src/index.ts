@@ -1,7 +1,7 @@
 import type { Env, PixelEventPayload, WebhookBody } from "./types";
 import { scanWebsite } from "./scanner";
-import { consumeOAuthState, countCustomerEvents, deleteShop, getDashboardWindows, getShop, insertEvent, logComplianceRequest, putOAuthState, rateLimit, redactCustomer, saveScan, saveShop, updatePixelId } from "./db";
-import { createWebPixel, encryptToken, exchangeCode, installUrl, randomState, parseSession, sessionCookie, validShop, verifyOAuthHmac, verifyWebhookHmac } from "./shopify";
+import { consumeOAuthState, countCustomerEvents, deleteShop, getDashboardWindows, getShop, insertEvent, logComplianceRequest, putOAuthState, rateLimit, redactCustomer, saveOrder, saveScan, saveShop, setIngestToken, updatePixelId } from "./db";
+import { createWebPixel, encryptToken, exchangeCode, installUrl, normalizeOrderId, pixelSettings, randomState, parseSession, safeCompare, sessionCookie, validShop, verifyOAuthHmac, verifyWebhookHmac, webPixelUpdate } from "./shopify";
 import { dashboardPage, errorPage, homePage, privacyPage, scanPage, setupPage, termsPage } from "./ui";
 
 const html=(body:string,status=200,headers:HeadersInit={})=>new Response(body,{status,headers:{"content-type":"text/html; charset=utf-8","x-content-type-options":"nosniff","referrer-policy":"strict-origin-when-cross-origin","permissions-policy":"camera=(), microphone=(), geolocation=()",...headers}});
@@ -121,9 +121,15 @@ async function route(request:Request,env:Env):Promise<Response>{
       // Pixel activation is deliberately non-fatal. The install has already committed by
       // this point, so throwing here would show a 500 to a merchant who is in fact
       // connected. Surface it as a banner and let them retry instead.
+      const ingestToken=randomState();
+      await setIngestToken(env,shop,ingestToken);
       let pixelOk=true;
       try{
-        const pixelId=await createWebPixel(env,shop,token);
+        const settings=pixelSettings(env,shop,ingestToken);
+        const existing=await getShop(env,shop);
+        const pixelId=existing?.pixel_id
+          ? await webPixelUpdate(env,shop,token,existing.pixel_id,settings)
+          : await createWebPixel(env,shop,token,settings);
         if(pixelId)await updatePixelId(env,shop,pixelId);
       }catch(e){pixelOk=false;console.error("web pixel activation failed",e);}
       const cookie=await sessionCookie(env.SHOPIFY_API_SECRET,shop,issuedAt);
@@ -154,9 +160,22 @@ async function route(request:Request,env:Env):Promise<Response>{
       const size=Number(request.headers.get("content-length")||0);if(size>100000)return json({error:"Payload too large"},413,{"access-control-allow-origin":"*"});
       const event=await request.json<PixelEventPayload>();
       if(!event.shop||!validShop(event.shop)||!event.eventId||!event.eventType)return json({error:"Invalid event"},400,{"access-control-allow-origin":"*"});
-      if(!(await getShop(env,event.shop)))return json({error:"Unknown store"},404,{"access-control-allow-origin":"*"});
+      const row=await getShop(env,event.shop);
+      if(!row)return json({error:"Unknown store"},404,{"access-control-allow-origin":"*"});
+      // The token lives in browser-delivered pixel settings, so it is not a secret. It
+      // stops a domain list being sprayed; it does not make events unforgeable. Shops
+      // installed before tokens existed have none, and are not locked out.
+      const supplied=request.headers.get("x-agentcart-token")||"";
+      if(row.ingest_token&&!safeCompare(supplied,row.ingest_token))
+        return json({error:"Invalid ingest token"},401,{"access-control-allow-origin":"*"});
+      const gate=await rateLimit(env,"events",event.shop,600,60000).catch(()=>({ok:true,retryAfter:0}));
+      if(!gate.ok)return json({error:"Rate limit exceeded"},429,{"access-control-allow-origin":"*","retry-after":String(gate.retryAfter)});
       const source=aiSource(event.referrer);
-      await insertEvent(env,event,source.agent,source.host);
+      // Recorded, not enforced: the strict-sandbox pixel's Origin cannot be confirmed
+      // without a live store, and enforcing a guessed value would silently zero every
+      // merchant's dashboard. Read these values before turning this into a check.
+      const origin=request.headers.get("origin")||null;
+      await insertEvent(env,{...event,raw:{...(event.raw&&typeof event.raw==="object"?event.raw as object:{}),origin}},source.agent,source.host);
       return json({ok:true},202,{"access-control-allow-origin":"*"});
     }catch{return json({error:"Invalid event payload"},400,{"access-control-allow-origin":"*"});}
   }
@@ -182,6 +201,19 @@ async function route(request:Request,env:Env):Promise<Response>{
     else if(topic==="customers/redact"){
       const removed=await redactCustomer(env,shop,orderIds);
       await logComplianceRequest(env,shop,topic,customerId,orderIds,removed);
+    }
+    else if(topic==="orders/paid"||topic==="orders/create"){
+      // Dormant until read_orders is granted. Only the fields needed for revenue are
+      // read: no customer block, no email, no phone, no addresses, and the raw payload
+      // is deliberately not stored for this topic.
+      const orderId=String(body.id??body.admin_graphql_api_id??"");
+      if(orderId){
+        const total=Number(body.current_total_price??body.total_price??NaN);
+        const processed=Date.parse(String(body.processed_at??body.created_at??""));
+        await saveOrder(env,shop,orderId,normalizeOrderId(body.admin_graphql_api_id??body.id),
+          Number.isFinite(total)?total:null,body.currency?String(body.currency):null,
+          Number.isNaN(processed)?Date.now():processed);
+      }
     }
     else if(topic==="customers/data_request"){
       // Shopify requires the request be handled and the data delivered to the merchant

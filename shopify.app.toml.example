@@ -8,6 +8,9 @@ embedded = false
 
 [access_scopes]
 scopes = "read_products,write_pixels,read_customer_events"
+# Add ",read_orders" only after Shopify approves the Protected Customer Data request.
+# See docs/USER_ACTIONS.md. The orders/paid handler is already implemented and will
+# start populating verified revenue as soon as the scope and subscription below exist.
 
 [auth]
 redirect_urls = [
@@ -20,6 +23,11 @@ api_version = "2026-07"
 [[webhooks.subscriptions]]
 topics = ["app/uninstalled"]
 uri = "/api/shopify/webhooks"
+
+# Uncomment together with read_orders above to enable verified revenue.
+# [[webhooks.subscriptions]]
+# topics = ["orders/paid"]
+# uri = "/api/shopify/webhooks"
 
 [[webhooks.subscriptions]]
 compliance_topics = ["customers/data_request", "customers/redact", "shop/redact"]
