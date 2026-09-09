@@ -99,6 +99,67 @@ export function agentReadyPage(report:AgentReadyReport,comparison?:{delta:number
   return layout(`Agent Ready: ${report.domain}`,reportBody(report,comparison));
 }
 
+export function aiProfilePage(profile:any,slug:string){
+  const b=profile.business||{};
+  const items=(profile.catalogSample||[]) as Array<any>;
+  const actions=(profile.actions||[]) as Array<any>;
+  const policies=(profile.policies||[]) as Array<any>;
+  const money=(p:any)=>p&&p.min!=null?`${esc(p.currency||"")} ${p.min}${p.max&&p.max!==p.min?` – ${p.max}`:""}`.trim():"—";
+  return layout(`AI profile: ${b.name||slug}`,`<main><div class="wrap section">
+    <div class="card">
+      <div class="eyebrow">AgentCart AI profile</div>
+      <h1 style="margin:6px 0">${esc(b.name||slug)}</h1>
+      <p class="muted">This is exactly what AgentCart tells AI assistants about this business. Nothing else is shared.</p>
+      <div class="formRow"><a class="btn" href="/api/ai/${esc(slug)}/profile">View as JSON</a></div>
+    </div>
+
+    <div class="two" style="margin-top:16px">
+      <div class="card"><h3>Business</h3>
+        <p class="muted">${esc(b.description||"No description has been published.")}</p>
+        <table class="table"><tbody>
+          <tr><th>Website</th><td>${esc(b.website||"—")}</td></tr>
+          <tr><th>Email</th><td>${esc(b.contact?.email||"—")}</td></tr>
+          <tr><th>Phone</th><td>${esc(b.contact?.phone||"—")}</td></tr>
+          <tr><th>Location</th><td>${esc([b.location?.city,b.location?.region,b.location?.country].filter(Boolean).join(", ")||"—")}</td></tr>
+          <tr><th>Currency</th><td>${esc(b.currency||"—")}</td></tr>
+          <tr><th>Last updated</th><td>${esc(String(b.lastUpdated||"").slice(0,16).replace("T"," "))}</td></tr>
+        </tbody></table>
+      </div>
+      <div class="card"><h3>What an assistant can do</h3>
+        ${actions.map(a=>`<div class="finding"><span class="dot ${a.supported?"good":"bad"}"></span>
+          <div><b>${esc(a.description)}</b>
+            ${a.limitations?`<div class="muted" style="font-size:13px">${esc(a.limitations)}</div>`:""}
+            <div class="muted" style="font-size:12px">Source: ${esc(a.source)}</div></div>
+          <div class="muted">${a.supported?"Yes":"No"}</div></div>`).join("")}
+      </div>
+    </div>
+
+    <div class="card" style="margin-top:16px"><h3>Catalogue${items.length?` (first ${items.length})`:""}</h3>
+      ${items.length?`<table class="table"><thead><tr><th>Product</th><th>Price</th><th>In stock</th></tr></thead><tbody>
+        ${items.map(i=>`<tr><td><b>${esc(i.title)}</b><div class="muted" style="font-size:12px">${esc(i.category||"")}</div></td>
+          <td>${esc(money(i.price))}</td><td class="muted">${i.available?"Yes":"No"}</td></tr>`).join("")}
+      </tbody></table>`:`<div class="empty">No catalogue has been synced yet.</div>`}
+    </div>
+
+    ${policies.length?`<div class="card" style="margin-top:16px"><h3>Policies</h3>
+      ${policies.map(p=>`<div class="finding"><span class="dot good"></span><div><b>${esc(p.title)}</b>
+        <div class="muted">${esc(String(p.summary||"").slice(0,400))}</div></div><div></div></div>`).join("")}
+    </div>`:""}
+
+    <div class="card" style="margin-top:16px"><h3>For developers and AI systems</h3>
+      <table class="table"><tbody>
+        <tr><th>Profile</th><td><code>/api/ai/${esc(slug)}/profile</code></td></tr>
+        <tr><th>Catalogue</th><td><code>/api/ai/${esc(slug)}/catalog</code></td></tr>
+        <tr><th>Item</th><td><code>/api/ai/${esc(slug)}/items/&lt;id or handle&gt;</code></td></tr>
+        <tr><th>Search</th><td><code>/api/ai/${esc(slug)}/search?q=</code></td></tr>
+        <tr><th>Policies</th><td><code>/api/ai/${esc(slug)}/policies</code></td></tr>
+        <tr><th>Actions</th><td><code>/api/ai/${esc(slug)}/actions</code></td></tr>
+        <tr><th>MCP (read-only)</th><td><code>POST /api/ai/${esc(slug)}/mcp</code></td></tr>
+      </tbody></table>
+    </div>
+  </div></main>`);
+}
+
 export function errorPage(title:string,message:string,ctaHref="/",ctaLabel="Back to AgentCart"){
   return layout(title,`<main><div class="wrap legal"><h1>${esc(title)}</h1><p>${esc(message)}</p><div class="formRow"><a class="btn primary" href="${esc(ctaHref)}">${esc(ctaLabel)}</a></div></div></main>`);
 }

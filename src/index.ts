@@ -2,9 +2,11 @@ import type { Env, PixelEventPayload, WebhookBody } from "./types";
 import { assessSite } from "./agentready";
 import { getFindings, getScanComparison, getScanHistory, recordFailedScan, saveScanRun } from "./agentready/store";
 import { ShopifyScopeError, getBusinessProfile, getLastSync, syncConnectedStore } from "./platform";
+import { buildProfile, ensureProfile, getActions, getCatalogView, getItemView, getPolicies, getProfileMeta, resolveSlug, searchCatalogView, setProfileActive } from "./ailayer/service";
+import { handleMcp } from "./ailayer/mcp";
 import { consumeOAuthState, countCustomerEvents, deleteShop, getDashboardWindows, getShop, insertEvent, logComplianceRequest, putOAuthState, rateLimit, redactCustomer, saveOrder, saveShop, setIngestToken, updatePixelId } from "./db";
 import { createWebPixel, encryptToken, exchangeCode, installUrl, normalizeOrderId, pixelSettings, randomState, parseSession, safeCompare, sessionCookie, validShop, verifyOAuthHmac, verifyWebhookHmac, webPixelUpdate } from "./shopify";
-import { agentReadyPage, dashboardPage, errorPage, homePage, privacyPage, setupPage, termsPage } from "./ui";
+import { agentReadyPage, aiProfilePage, dashboardPage, errorPage, homePage, privacyPage, setupPage, termsPage } from "./ui";
 
 const html=(body:string,status=200,headers:HeadersInit={})=>new Response(body,{status,headers:{"content-type":"text/html; charset=utf-8","x-content-type-options":"nosniff","referrer-policy":"strict-origin-when-cross-origin","permissions-policy":"camera=(), microphone=(), geolocation=()",...headers}});
 const json=(data:unknown,status=200,headers:HeadersInit={})=>new Response(JSON.stringify(data),{status,headers:{"content-type":"application/json; charset=utf-8","cache-control":"no-store",...headers}});
@@ -170,7 +172,7 @@ async function route(request:Request,env:Env):Promise<Response>{
       // Pull authoritative catalogue data now so the dashboard and AI layer have
       // something immediately. Non-fatal for the same reason pixel activation is: the
       // install has already committed.
-      try{await syncConnectedStore(env,shop);}
+      try{await syncConnectedStore(env,shop);await ensureProfile(env,shop);}
       catch(e){console.error("initial store sync failed",e);}
       const cookie=await sessionCookie(env.SHOPIFY_API_SECRET,shop,issuedAt);
       const location=`${env.APP_URL}/dashboard${pixelOk?"":"?pixel=failed"}`;
@@ -209,6 +211,22 @@ async function route(request:Request,env:Env):Promise<Response>{
     const profile=await getBusinessProfile(env,shop);
     return json({lastSync:last||null,business:profile?{name:profile.name,syncedMs:profile.synced_ms}:null,
       needsReauthorization:last?.status==="needs_reauthorization"});
+  }
+
+  if(path==="/api/ai-layer"&&(request.method==="GET"||request.method==="POST")){
+    const shop=await sessionShop(request,env);
+    if(!shop)return json({error:"No connected Shopify session."},401);
+    if(request.method==="POST"){
+      const body=await request.json<{active?:boolean}>().catch(()=>({active:undefined}));
+      if(typeof body.active==="boolean")await setProfileActive(env,shop,body.active);
+      else await ensureProfile(env,shop);
+    }
+    const slug=await ensureProfile(env,shop);
+    const meta=await getProfileMeta(env,shop);
+    return json({slug,active:!!Number(meta?.active??1),version:Number(meta?.version??1),
+      publicUrl:`${env.APP_URL}/ai/${slug}`,apiUrl:`${env.APP_URL}/api/ai/${slug}/profile`,
+      mcpUrl:`${env.APP_URL}/api/ai/${slug}/mcp`,
+      lastGenerated:meta?.last_generated_ms?new Date(Number(meta.last_generated_ms)).toISOString():null});
   }
 
   if(request.method==="GET"&&path==="/api/dashboard"){
@@ -288,6 +306,65 @@ async function route(request:Request,env:Env):Promise<Response>{
     }
     // Unknown topics acknowledge with 200: a non-2xx makes Shopify retry indefinitely.
     return json({ok:true});
+  }
+
+  // ---- Public AI compatibility layer ----------------------------------------
+  // Everything under /ai and /api/ai is public and unauthenticated by design: it exists
+  // so an AI system can read a merchant's canonical data without scraping. It serves
+  // only what src/ailayer/service.ts emits.
+  if(path.startsWith("/api/ai/")||path==="/api/ai"||path.startsWith("/ai/")){
+    const isHuman=path.startsWith("/ai/");
+    const rest=isHuman?path.slice("/ai/".length):path.slice("/api/ai/".length);
+    const [rawSlug,...segments]=rest.split("/").filter(Boolean);
+    if(!rawSlug)return json({error:"No business identifier supplied."},404);
+    const slug=decodeURIComponent(rawSlug).toLowerCase();
+    const profile=await resolveSlug(env,slug);
+    if(!profile)return isHuman
+      ? html(errorPage("No such AI profile","That AgentCart AI profile does not exist, or the business has turned it off.","/","Back to AgentCart"),404)
+      : json({error:"No active AgentCart AI profile for that identifier."},404);
+    const shop=profile.shop_domain;
+
+    if(isHuman&&!segments.length){
+      const built=await buildProfile(env,shop,slug);
+      return built
+        ? html(aiProfilePage(built,slug))
+        : html(errorPage("This profile is not ready yet","This business has connected but its catalogue has not been synced.","/","Back to AgentCart"),404);
+    }
+
+    // MCP speaks JSON-RPC over POST on the profile root.
+    if(!isHuman&&request.method==="POST"&&(!segments.length||segments[0]==="mcp")){
+      const gate=await rateLimit(env,"ai",slug,240,60000).catch(()=>({ok:true,retryAfter:0}));
+      if(!gate.ok)return json({error:"Rate limit exceeded"},429,{"retry-after":String(gate.retryAfter)});
+      let body:any={};
+      try{body=await request.json();}catch{return json({jsonrpc:"2.0",id:null,error:{code:-32700,message:"Invalid JSON."}},400);}
+      const result=await handleMcp(env,shop,slug,body);
+      return result?json(result):new Response(null,{status:204});
+    }
+
+    if(request.method!=="GET")return json({error:"Method not allowed"},405);
+    const gate=await rateLimit(env,"ai",slug,240,60000).catch(()=>({ok:true,retryAfter:0}));
+    if(!gate.ok)return json({error:"Rate limit exceeded"},429,{"retry-after":String(gate.retryAfter)});
+
+    const section=segments[0]||"profile";
+    let payload:unknown=null;
+    if(section==="profile")payload=await buildProfile(env,shop,slug);
+    else if(section==="catalog")payload={items:await getCatalogView(env,shop,
+      Number(url.searchParams.get("limit"))||50,Number(url.searchParams.get("offset"))||0)};
+    else if(section==="items"&&segments[1])payload=await getItemView(env,shop,decodeURIComponent(segments[1]));
+    else if(section==="policies")payload={policies:await getPolicies(env,shop)};
+    else if(section==="actions")payload={actions:await getActions(env,shop)};
+    else if(section==="search")payload={results:await searchCatalogView(env,shop,url.searchParams.get("q")||"",
+      Number(url.searchParams.get("limit"))||20)};
+    else return json({error:"Unknown AI profile section."},404);
+
+    if(!payload)return json({error:"Not found in this merchant's catalogue."},404);
+    // A weak ETag over the profile version and sync time is enough for a conditional GET
+    // and costs nothing; the content only changes when one of those does.
+    const meta=await getProfileMeta(env,shop);
+    const etag=`W/"${slug}-${meta?.version??1}-${meta?.last_generated_ms??0}-${section}"`;
+    if(request.headers.get("if-none-match")===etag)return new Response(null,{status:304,headers:{etag}});
+    return json(payload,200,{etag,"cache-control":"public, max-age=300",
+      "access-control-allow-origin":"*"});
   }
 
   if(request.method==="GET"&&path==="/health")return json({ok:true,service:"AgentCart",time:new Date().toISOString()});
