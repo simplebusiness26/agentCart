@@ -74,6 +74,11 @@ describe('/api/dashboard',()=>{
     const body:any=await res.json();
     expect(body.summary.orders).toBeGreaterThan(0);
     expect(Array.isArray(body.sources)).toBe(true);
+    // Locks the fixture against regressing to an empty top-products section, which is
+    // what the marketing site's "View live demo" link renders.
+    expect(body.topProducts.length).toBeGreaterThan(0);
+    expect(body.previous).toBeTruthy();
+    expect(body.currency).toBe('GBP');
   });
   it('401s without a session',async()=>{
     expect((await get('/api/dashboard')).status).toBe(401);

@@ -70,10 +70,14 @@ export async function redactCustomer(env:Env,shop:string,orderIds:string[]){
 }
 
 export async function insertEvent(env:Env,event:PixelEventPayload,sourceAgent:string,sourceHost:string){
+  // An unparseable timestamp falls back to arrival time rather than dropping the event:
+  // a slightly misdated event is far less harmful than a silently discarded order.
+  const parsed=Date.parse(event.occurredAt);
+  const occurredMs=Number.isNaN(parsed)?Date.now():parsed;
   await env.DB.prepare(`INSERT OR IGNORE INTO events(
-    event_id,shop_domain,event_type,occurred_at,source_agent,source_host,landing_url,product_id,product_title,order_id,amount,currency,session_id,payload_json
-  ) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?)`).bind(
-    event.eventId,event.shop,event.eventType,event.occurredAt,sourceAgent,sourceHost||null,event.landingUrl||null,
+    event_id,shop_domain,event_type,occurred_at,occurred_ms,source_agent,source_host,landing_url,product_id,product_title,order_id,amount,currency,session_id,payload_json
+  ) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`).bind(
+    event.eventId,event.shop,event.eventType,event.occurredAt,occurredMs,sourceAgent,sourceHost||null,event.landingUrl||null,
     event.productId||null,event.productTitle||null,event.orderId||null,typeof event.amount==="number"?event.amount:null,
     event.currency||null,event.sessionId||null,JSON.stringify(event.raw??null)
   ).run();
@@ -87,26 +91,48 @@ export async function saveScan(env:Env,domain:string,score:number,findings:unkno
   ]);
 }
 
-export async function getDashboard(env:Env,shop:string){
+export const WINDOW_MS=30*24*60*60*1000;
+
+export async function getDashboard(env:Env,shop:string,fromMs:number,toMs:number){
   const summary=await env.DB.prepare(`SELECT COUNT(*) AS events,
     COUNT(DISTINCT CASE WHEN event_type='page_viewed' THEN session_id END) AS visits,
     COUNT(DISTINCT CASE WHEN event_type='checkout_completed' THEN order_id END) AS orders,
     COALESCE(SUM(CASE WHEN event_type='checkout_completed' THEN amount ELSE 0 END),0) AS revenue
-    FROM events WHERE shop_domain=? AND occurred_at>=datetime('now','-30 day')`).bind(shop).first();
+    FROM events WHERE shop_domain=? AND occurred_ms>=? AND occurred_ms<?`).bind(shop,fromMs,toMs).first();
   const sources=await env.DB.prepare(`SELECT source_agent AS source,
     COUNT(DISTINCT CASE WHEN event_type='page_viewed' THEN session_id END) AS visits,
     COUNT(DISTINCT CASE WHEN event_type='checkout_completed' THEN order_id END) AS orders,
     COALESCE(SUM(CASE WHEN event_type='checkout_completed' THEN amount ELSE 0 END),0) AS revenue
-    FROM events WHERE shop_domain=? AND occurred_at>=datetime('now','-30 day')
-    GROUP BY source_agent ORDER BY revenue DESC`).bind(shop).all();
+    FROM events WHERE shop_domain=? AND occurred_ms>=? AND occurred_ms<?
+    GROUP BY source_agent ORDER BY revenue DESC`).bind(shop,fromMs,toMs).all();
   const funnel=await env.DB.prepare(`SELECT event_type,COUNT(*) AS count FROM events
-    WHERE shop_domain=? AND occurred_at>=datetime('now','-30 day') GROUP BY event_type`).bind(shop).all();
-  const topProducts=await env.DB.prepare(`SELECT product_title AS product,
+    WHERE shop_domain=? AND occurred_ms>=? AND occurred_ms<? GROUP BY event_type`).bind(shop,fromMs,toMs).all();
+  const topProducts=await env.DB.prepare(`SELECT product_title AS product, product_id,
     COUNT(*) AS events,
     COALESCE(SUM(CASE WHEN event_type='checkout_completed' THEN amount ELSE 0 END),0) AS revenue
-    FROM events WHERE shop_domain=? AND product_title IS NOT NULL AND occurred_at>=datetime('now','-30 day')
-    GROUP BY product_title ORDER BY revenue DESC LIMIT 8`).bind(shop).all();
-  return {summary,sources:sources.results,funnel:funnel.results,topProducts:topProducts.results};
+    FROM events WHERE shop_domain=? AND product_title IS NOT NULL AND occurred_ms>=? AND occurred_ms<?
+    GROUP BY product_id, product_title ORDER BY revenue DESC, events DESC LIMIT 8`).bind(shop,fromMs,toMs).all();
+  // Summing across currencies is wrong however it is formatted, so report which currency
+  // dominates and how many were seen; the UI says so rather than inventing conversion.
+  const currency=await env.DB.prepare(`SELECT currency, COUNT(*) AS n FROM events
+    WHERE shop_domain=? AND currency IS NOT NULL AND event_type='checkout_completed'
+    AND occurred_ms>=? AND occurred_ms<? GROUP BY currency ORDER BY n DESC LIMIT 1`).bind(shop,fromMs,toMs).first<{currency:string}>();
+  const currencyCount=await env.DB.prepare(`SELECT COUNT(DISTINCT currency) AS c FROM events
+    WHERE shop_domain=? AND currency IS NOT NULL AND event_type='checkout_completed'
+    AND occurred_ms>=? AND occurred_ms<?`).bind(shop,fromMs,toMs).first<{c:number}>();
+  return {summary,sources:sources.results,funnel:funnel.results,topProducts:topProducts.results,
+    currency:currency?.currency||null,currencyCount:Number(currencyCount?.c||0)};
+}
+
+// Current window plus the one immediately before it, for trend deltas. The two ranges are
+// half-open and share a boundary, so no event can be counted in both.
+export async function getDashboardWindows(env:Env,shop:string,nowMs:number){
+  // Anchor one millisecond past now so an event stamped exactly now still counts;
+  // both ranges stay half-open and share a boundary, so nothing lands in both.
+  const anchor=nowMs+1;
+  const current=await getDashboard(env,shop,anchor-WINDOW_MS,anchor);
+  const prior=await getDashboard(env,shop,anchor-2*WINDOW_MS,anchor-WINDOW_MS);
+  return {...current,previous:prior.summary};
 }
 
 // Fixed-window rate limiting in D1. Cloudflare's native rate-limit binding would avoid

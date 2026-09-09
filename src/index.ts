@@ -1,6 +1,6 @@
 import type { Env, PixelEventPayload, WebhookBody } from "./types";
 import { scanWebsite } from "./scanner";
-import { consumeOAuthState, countCustomerEvents, deleteShop, getDashboard, getShop, insertEvent, logComplianceRequest, putOAuthState, rateLimit, redactCustomer, saveScan, saveShop, updatePixelId } from "./db";
+import { consumeOAuthState, countCustomerEvents, deleteShop, getDashboardWindows, getShop, insertEvent, logComplianceRequest, putOAuthState, rateLimit, redactCustomer, saveScan, saveShop, updatePixelId } from "./db";
 import { createWebPixel, encryptToken, exchangeCode, installUrl, randomState, sessionCookie, shopFromCookie, validShop, verifyOAuthHmac, verifyWebhookHmac } from "./shopify";
 import { dashboardPage, errorPage, homePage, privacyPage, scanPage, setupPage, termsPage } from "./ui";
 
@@ -26,6 +26,9 @@ export function aiSource(referrer?:string){
 
 const demoData={
   summary:{events:1264,visits:312,orders:47,revenue:8942},
+  previous:{events:1013,visits:271,orders:39,revenue:7318},
+  currency:"GBP",
+  currencyCount:1,
   sources:[
     {source:"ChatGPT",visits:136,orders:23,revenue:4210},
     {source:"Gemini",visits:74,orders:10,revenue:1894},
@@ -34,7 +37,13 @@ const demoData={
     {source:"Claude",visits:22,orders:2,revenue:531}
   ],
   funnel:[{event_type:"page_viewed",count:566},{event_type:"product_viewed",count:421},{event_type:"checkout_started",count:88},{event_type:"checkout_completed",count:47}],
-  topProducts:[]
+  topProducts:[
+    {product:"Merino Base Layer - Charcoal",product_id:"1",events:184,revenue:2410},
+    {product:"Trail Runner GTX",product_id:"2",events:141,revenue:1985},
+    {product:"Packable Down Jacket",product_id:"3",events:118,revenue:1642},
+    {product:"Insulated Flask 750ml",product_id:"4",events:96,revenue:1188},
+    {product:"Wool Hiking Socks (3 pack)",product_id:"5",events:73,revenue:717}
+  ]
 };
 
 // The scanner makes outbound fetches on behalf of anonymous callers, so it is gated
@@ -113,7 +122,7 @@ async function route(request:Request,env:Env):Promise<Response>{
     if(url.searchParams.get("demo")==="1")return json(demoData);
     const shop=await shopFromCookie(env.SHOPIFY_API_SECRET,request.headers.get("cookie"));
     if(!shop)return json({error:"No connected Shopify session."},401);
-    return json(await getDashboard(env,shop));
+    return json(await getDashboardWindows(env,shop,Date.now()));
   }
 
   if(path==="/api/events"&&request.method==="OPTIONS")return new Response(null,{status:204,headers:{"access-control-allow-origin":"*","access-control-allow-methods":"POST,OPTIONS","access-control-allow-headers":"content-type","access-control-max-age":"86400"}});

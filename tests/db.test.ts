@@ -1,5 +1,5 @@
 import {beforeEach,describe,expect,it} from 'vitest';
-import {consumeOAuthState,deleteShop,getDashboard,getShop,insertEvent,putOAuthState,saveScan,saveShop,updatePixelId} from '../src/db';
+import {WINDOW_MS,consumeOAuthState,deleteShop,getDashboard,getDashboardWindows,getShop,insertEvent,putOAuthState,saveScan,saveShop,updatePixelId} from '../src/db';
 import {fakeEnv} from './helpers/env';
 import {migrationFiles} from './helpers/d1';
 import type {Env,PixelEventPayload} from '../src/types';
@@ -92,7 +92,7 @@ describe('deleteShop',()=>{
 describe('getDashboard',()=>{
   it('returns the expected shape',async()=>{
     await saveShop(env,SHOP,'t');
-    const d:any=await getDashboard(env,SHOP);
+    const d:any=await getDashboardWindows(env,SHOP,Date.now());
     expect(d).toHaveProperty('summary');
     expect(Array.isArray(d.sources)).toBe(true);
     expect(Array.isArray(d.funnel)).toBe(true);
@@ -104,7 +104,7 @@ describe('getDashboard',()=>{
     await insertEvent(env,ev({eventId:'v1',eventType:'page_viewed',sessionId:'s1',occurredAt:now}),'ChatGPT','chatgpt.com');
     await insertEvent(env,ev({eventId:'v2',eventType:'page_viewed',sessionId:'s2',occurredAt:now}),'ChatGPT','chatgpt.com');
     await insertEvent(env,ev({eventId:'o1',eventType:'checkout_completed',orderId:'1001',amount:50,currency:'GBP',sessionId:'s1',occurredAt:now}),'ChatGPT','chatgpt.com');
-    const d:any=await getDashboard(env,SHOP);
+    const d:any=await getDashboardWindows(env,SHOP,Date.now());
     expect(Number(d.summary.visits)).toBe(2);
     expect(Number(d.summary.orders)).toBe(1);
     expect(Number(d.summary.revenue)).toBe(50);
