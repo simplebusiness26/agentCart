@@ -1,6 +1,7 @@
 import type { Env, PixelEventPayload, WebhookBody } from "./types";
 import { assessSite } from "./agentready";
 import { getFindings, getScanComparison, getScanHistory, recordFailedScan, saveScanRun } from "./agentready/store";
+import { ShopifyScopeError, getBusinessProfile, getLastSync, syncConnectedStore } from "./platform";
 import { consumeOAuthState, countCustomerEvents, deleteShop, getDashboardWindows, getShop, insertEvent, logComplianceRequest, putOAuthState, rateLimit, redactCustomer, saveOrder, saveShop, setIngestToken, updatePixelId } from "./db";
 import { createWebPixel, encryptToken, exchangeCode, installUrl, normalizeOrderId, pixelSettings, randomState, parseSession, safeCompare, sessionCookie, validShop, verifyOAuthHmac, verifyWebhookHmac, webPixelUpdate } from "./shopify";
 import { agentReadyPage, dashboardPage, errorPage, homePage, privacyPage, setupPage, termsPage } from "./ui";
@@ -166,6 +167,11 @@ async function route(request:Request,env:Env):Promise<Response>{
           : await createWebPixel(env,shop,token,settings);
         if(pixelId)await updatePixelId(env,shop,pixelId);
       }catch(e){pixelOk=false;console.error("web pixel activation failed",e);}
+      // Pull authoritative catalogue data now so the dashboard and AI layer have
+      // something immediately. Non-fatal for the same reason pixel activation is: the
+      // install has already committed.
+      try{await syncConnectedStore(env,shop);}
+      catch(e){console.error("initial store sync failed",e);}
       const cookie=await sessionCookie(env.SHOPIFY_API_SECRET,shop,issuedAt);
       const location=`${env.APP_URL}/dashboard${pixelOk?"":"?pixel=failed"}`;
       return new Response(null,{status:302,headers:{location,"set-cookie":cookie}});
@@ -179,6 +185,30 @@ async function route(request:Request,env:Env):Promise<Response>{
     const demo=url.searchParams.get("demo")==="1";
     const shop=demo?null:await sessionShop(request,env);
     return html(dashboardPage(demo,shop,url.searchParams.get("pixel")==="failed"));
+  }
+
+  if(request.method==="POST"&&path==="/api/sync"){
+    const shop=await sessionShop(request,env);
+    if(!shop)return json({error:"No connected Shopify session."},401);
+    const gate=await rateLimit(env,"sync",shop,4,300000).catch(()=>({ok:true,retryAfter:0}));
+    if(!gate.ok)return json({error:"Sync was run very recently. Try again in a few minutes."},429,{"retry-after":String(gate.retryAfter)});
+    try{
+      const out=await syncConnectedStore(env,shop);
+      return json({ok:true,items:out.items,business:out.business.name});
+    }catch(e){
+      if(e instanceof ShopifyScopeError)
+        return json({error:e.message,needsReauthorization:true,reconnectUrl:`/connect?shop=${encodeURIComponent(shop)}`},403);
+      return json({error:e instanceof Error?e.message:"Sync failed"},502);
+    }
+  }
+
+  if(request.method==="GET"&&path==="/api/sync/status"){
+    const shop=await sessionShop(request,env);
+    if(!shop)return json({error:"No connected Shopify session."},401);
+    const last=await getLastSync(env,shop);
+    const profile=await getBusinessProfile(env,shop);
+    return json({lastSync:last||null,business:profile?{name:profile.name,syncedMs:profile.synced_ms}:null,
+      needsReauthorization:last?.status==="needs_reauthorization"});
   }
 
   if(request.method==="GET"&&path==="/api/dashboard"){
