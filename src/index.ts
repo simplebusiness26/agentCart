@@ -1,8 +1,8 @@
 import type { Env, PixelEventPayload, WebhookBody } from "./types";
 import { scanWebsite } from "./scanner";
-import { consumeOAuthState, countCustomerEvents, deleteShop, getDashboard, getShop, insertEvent, logComplianceRequest, putOAuthState, redactCustomer, saveScan, saveShop, updatePixelId } from "./db";
+import { consumeOAuthState, countCustomerEvents, deleteShop, getDashboard, getShop, insertEvent, logComplianceRequest, putOAuthState, rateLimit, redactCustomer, saveScan, saveShop, updatePixelId } from "./db";
 import { createWebPixel, encryptToken, exchangeCode, installUrl, randomState, sessionCookie, shopFromCookie, validShop, verifyOAuthHmac, verifyWebhookHmac } from "./shopify";
-import { dashboardPage, homePage, privacyPage, scanPage, setupPage, termsPage } from "./ui";
+import { dashboardPage, errorPage, homePage, privacyPage, scanPage, setupPage, termsPage } from "./ui";
 
 const html=(body:string,status=200,headers:HeadersInit={})=>new Response(body,{status,headers:{"content-type":"text/html; charset=utf-8","x-content-type-options":"nosniff","referrer-policy":"strict-origin-when-cross-origin","permissions-policy":"camera=(), microphone=(), geolocation=()",...headers}});
 const json=(data:unknown,status=200,headers:HeadersInit={})=>new Response(JSON.stringify(data),{status,headers:{"content-type":"application/json; charset=utf-8","cache-control":"no-store",...headers}});
@@ -37,6 +37,14 @@ const demoData={
   topProducts:[]
 };
 
+// The scanner makes outbound fetches on behalf of anonymous callers, so it is gated
+// per client IP. Falls open if the limiter itself fails -- a broken counter should not
+// take the public scanner offline.
+async function scanGate(request:Request,env:Env){
+  try{return await rateLimit(env,"scan",request.headers.get("cf-connecting-ip")||"unknown",10,60000);}
+  catch{return {ok:true,count:0,limit:10,retryAfter:0};}
+}
+
 async function route(request:Request,env:Env):Promise<Response>{
   const url=new URL(request.url);
   const path=url.pathname;
@@ -49,14 +57,18 @@ async function route(request:Request,env:Env):Promise<Response>{
   if(request.method==="GET"&&path==="/scan"){
     const target=url.searchParams.get("url")||"";
     if(!target)return Response.redirect(`${url.origin}/#scanner`,302);
+    const gate=await scanGate(request,env);
+    if(!gate.ok)return html(errorPage("Too many scans","You have run a lot of scans in the last minute. Please wait a moment and try again.","/#scanner","Back to the scanner"),429,{"retry-after":String(gate.retryAfter)});
     try{
       const result=await scanWebsite(target);
       await saveScan(env,result.domain,result.score,result.findings).catch(()=>{});
       return html(scanPage(result));
-    }catch(e){return html(`<main style="font-family:system-ui;padding:40px;max-width:720px;margin:auto"><h1>Scan couldn't complete</h1><p>${String(e instanceof Error?e.message:e)}</p><p><a href="/">Try another store</a></p></main>`,400);}
+    }catch(e){return html(errorPage("That scan could not complete",e instanceof Error?e.message:"Scan failed.","/#scanner","Try another website"),400);}
   }
 
   if(request.method==="POST"&&path==="/api/scan"){
+    const gate=await scanGate(request,env);
+    if(!gate.ok)return json({error:"Rate limit exceeded. Try again shortly."},429,{"retry-after":String(gate.retryAfter)});
     try{
       const body=await request.json<{url?:string}>();
       const result=await scanWebsite(body.url||"");

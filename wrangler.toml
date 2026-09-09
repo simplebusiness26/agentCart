@@ -8,6 +8,15 @@ APP_URL = "http://localhost:8787"
 SHOPIFY_API_VERSION = "2026-07"
 DEMO_MODE = "true"
 
+# Rate limiting currently uses a D1 counter (see rateLimit in src/db.ts) so that it is
+# testable without workerd. At higher volume, Cloudflare's native binding avoids the
+# D1 writes, at the cost of being per-colo and best-effort:
+#   [[unsafe.bindings]]
+#   name = "RATE_LIMIT"
+#   type = "ratelimit"
+#   namespace_id = "1001"
+#   simple = { limit = 10, period = 60 }
+
 [[d1_databases]]
 binding = "DB"
 database_name = "agentcart"

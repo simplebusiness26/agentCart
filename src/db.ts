@@ -80,7 +80,11 @@ export async function insertEvent(env:Env,event:PixelEventPayload,sourceAgent:st
 }
 
 export async function saveScan(env:Env,domain:string,score:number,findings:unknown){
-  await env.DB.prepare("INSERT INTO scans(domain,score,findings_json) VALUES(?,?,?)").bind(domain,score,JSON.stringify(findings)).run();
+  await env.DB.batch([
+    env.DB.prepare("INSERT INTO scans(domain,score,findings_json) VALUES(?,?,?)").bind(domain,score,JSON.stringify(findings)),
+    // Anyone can write here, so cap how long it is kept rather than only how fast it grows.
+    env.DB.prepare("DELETE FROM scans WHERE created_at < datetime('now','-90 day')")
+  ]);
 }
 
 export async function getDashboard(env:Env,shop:string){
@@ -103,4 +107,17 @@ export async function getDashboard(env:Env,shop:string){
     FROM events WHERE shop_domain=? AND product_title IS NOT NULL AND occurred_at>=datetime('now','-30 day')
     GROUP BY product_title ORDER BY revenue DESC LIMIT 8`).bind(shop).all();
   return {summary,sources:sources.results,funnel:funnel.results,topProducts:topProducts.results};
+}
+
+// Fixed-window rate limiting in D1. Cloudflare's native rate-limit binding would avoid
+// these writes, but it is per-colo and cannot be exercised without workerd, so correctness
+// would rest on untested code. See wrangler.toml for the scale-up path.
+export async function rateLimit(env:Env,kind:string,key:string,limit:number,windowMs:number){
+  const now=Date.now();
+  const bucket=`${kind}:${key}:${Math.floor(now/windowMs)}`;
+  const row=await env.DB.prepare(`INSERT INTO rate_buckets(bucket,count,expires_at) VALUES(?,1,?)
+    ON CONFLICT(bucket) DO UPDATE SET count=count+1 RETURNING count`).bind(bucket,now+windowMs).first<{count:number}>();
+  const count=Number(row?.count||1);
+  if(count===1)await env.DB.prepare("DELETE FROM rate_buckets WHERE expires_at<?").bind(now).run().catch(()=>{});
+  return {ok:count<=limit,count,limit,retryAfter:Math.ceil((Math.floor(now/windowMs)*windowMs+windowMs-now)/1000)};
 }
