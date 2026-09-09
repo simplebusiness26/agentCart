@@ -24,8 +24,15 @@ Everything below requires access to an external account, a credential, an approv
 
 5. **Deploy the Shopify app + Web Pixel extension**.
    - Run `npx shopify app deploy` while authenticated to the Shopify developer account.
+   - The app requests `read_products`, `write_pixels` and `read_customer_events` today.
+     `write_products` is additionally required for the product fixes; add it to
+     `shopify.app.toml` before deploying if you want those enabled.
 
-6. **Install AgentCart on a Shopify development store** and complete a test journey.
+6. **Configure the monitoring schedule**.
+   - `wrangler.toml` sets a daily cron. Cloudflare cron triggers activate on deploy;
+     confirm the trigger appears in the Cloudflare dashboard after `npm run deploy`.
+
+7. **Install AgentCart on a Shopify development store** and complete a test journey.
    - Page view
    - Product view
    - Checkout started
@@ -34,7 +41,7 @@ Everything below requires access to an external account, a credential, an approv
 
 ## Required before a public launch
 
-7. Replace the placeholder privacy/support contact text with the real business contact details.
+8. Replace the placeholder privacy/support contact text with the real business contact details.
 
    **Customer data requests.** Shopify requires these to be fulfilled within 30 days.
    AgentCart records each one in the `compliance_requests` table rather than emailing
@@ -49,18 +56,18 @@ Everything below requires access to an external account, a credential, an approv
    customer name, email, phone, address or payment data, so the returned set is limited
    to attribution and funnel records.
 
-8. Decide the public pricing. The code currently has no billing gate because charging users before attribution is proven would slow validation.
+9. Decide the public pricing. The code currently has no billing gate because charging users before attribution is proven would slow validation.
 
-9. Create the public Shopify App Store listing assets:
+10. Create the public Shopify App Store listing assets:
    - icon
    - screenshots
    - listing copy
    - support URL/email
    - pricing information
 
-10. Submit the app for Shopify review if public App Store distribution is desired.
+11. Submit the app for Shopify review if public App Store distribution is desired.
 
-11. Review the Privacy Policy and Terms for the actual business/jurisdictions before accepting paying customers. The included versions are product-ready drafts, not a substitute for legal review.
+12. Review the Privacy Policy and Terms for the actual business/jurisdictions before accepting paying customers. The included versions are product-ready drafts, not a substitute for legal review.
 
 ## Optional: enable verified revenue
 

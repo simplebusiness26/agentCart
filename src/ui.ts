@@ -15,6 +15,9 @@ const css=`
 .pill.manual{background:#2a2733;color:#cdbfe8}.pill.layer{background:#152c3a;color:#a9dcf7}
 .fix{display:grid;grid-template-columns:12px 1fr auto;gap:12px;padding:16px 0;border-bottom:1px solid var(--line)}
 .fix:last-child{border:0}.na{opacity:.55}
+.tabs{display:flex;gap:6px;flex-wrap:wrap;margin:6px 0 18px;border-bottom:1px solid var(--line)}
+.tab{background:none;border:0;border-bottom:2px solid transparent;color:var(--muted);font:inherit;font-weight:700;padding:10px 14px;cursor:pointer}
+.tab.on{color:var(--text);border-bottom-color:var(--accent)}
 .delta{font-size:14px;font-weight:750}.delta.up{color:var(--good)}.delta.down{color:var(--bad)}
 @media(max-width:780px){.hero{grid-template-columns:1fr;padding-top:42px}.hero h1{letter-spacing:-2.5px}.grid3,.metrics,.two{grid-template-columns:1fr}.navlinks a:not(.keep){display:none}.formRow{flex-direction:column}.dashHead{align-items:flex-start;gap:14px;flex-direction:column}.footerin{flex-direction:column}.metric b{font-size:25px}.cando{grid-template-columns:1fr}}
 `;
@@ -73,27 +76,152 @@ export function homePage(){return layout("Make your business ready for AI custom
 </div></section>
 </div></main>`);}
 
-export function dashboardPage(demo:boolean,shop?:string|null,pixelFailed=false){return layout("Dashboard",`<main><div class="wrap">${pixelFailed?`<div class="card" style="margin-top:22px;border-color:var(--warn)"><b>Your store is connected, but the AgentCart pixel did not activate.</b><div class="muted">Attribution will stay empty until it does. Reconnect from the home page to retry, or activate the AgentCart pixel from your Shopify admin under Settings &rarr; Customer events.</div></div>`:""}<div class="dashHead"><div><div class="eyebrow">AI Commerce Radar</div><h1>${demo?"Demo Store":esc(shop||"Your store")}</h1><div class="muted">Identifiable AI commerce · last 30 days</div></div><span class="status">${demo?"DEMO DATA":"LIVE"}</span></div><div id="dashboard"><div class="empty">Loading commerce signals…</div></div></div></main><script>
+export function dashboardPage(demo:boolean,shop?:string|null,pixelFailed=false){
+  const banner=pixelFailed?`<div class="card" style="margin-top:22px;border-color:var(--warn)"><b>Your store is connected, but the AgentCart pixel did not activate.</b><div class="muted">Attribution will stay empty until it does. Reconnect from the home page to retry, or activate the AgentCart pixel from your Shopify admin under Settings &rarr; Customer events.</div></div>`:"";
+  return layout("Dashboard",`<main><div class="wrap">${banner}
+  <div class="dashHead">
+    <div><div class="eyebrow">AgentCart</div>
+      <h1>${demo?"Demo Store":esc(shop||"Your store")}</h1>
+      <div class="muted">Agent readiness, fixes and AI traffic</div></div>
+    <span class="status">${demo?"DEMO DATA":"LIVE"}</span>
+  </div>
+  <div class="tabs" role="tablist">
+    <button class="tab on" data-tab="overview">Overview</button>
+    <button class="tab" data-tab="ready">Agent Ready</button>
+    <button class="tab" data-tab="fixes">Fixes</button>
+    <button class="tab" data-tab="layer">AI Layer</button>
+    <button class="tab" data-tab="traffic">AI Traffic</button>
+  </div>
+  <div id="panel-overview" class="panel"><div class="empty">Loading…</div></div>
+  <div id="panel-ready" class="panel" hidden><div class="empty">Loading…</div></div>
+  <div id="panel-fixes" class="panel" hidden><div class="empty">Loading…</div></div>
+  <div id="panel-layer" class="panel" hidden><div class="empty">Loading…</div></div>
+  <div id="panel-traffic" class="panel" hidden><div class="empty">Loading commerce signals…</div></div>
+  </div></main><script>
 const demo=${demo?"true":"false"};
 let CUR='USD';
 const money=n=>new Intl.NumberFormat('en-GB',{style:'currency',currency:CUR,maximumFractionDigits:0}).format(Number(n||0));
-const delta=(cur,prev)=>{const c=Number(cur||0),p=Number(prev||0);if(!p)return '';const d=(c-p)/p*100;return '<span class="muted" style="font-size:13px"> '+(d>=0?'+':'\u2212')+Math.abs(d).toFixed(1)+'%</span>';};
 const num=n=>new Intl.NumberFormat('en-GB').format(Number(n||0));
 const esc=v=>String(v==null?'':v).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
-fetch('/api/dashboard'+(demo?'?demo=1':''),{credentials:'same-origin'}).then(r=>{if(!r.ok)throw new Error('Not connected');return r.json()}).then(d=>{
- CUR=d.currency||'USD';
- const prev=d.previous||{};
- const mixed=Number(d.currencyCount||0)>1?'<span class="chip" style="margin-left:8px">mixed currencies \u2014 totals are approximate</span>':'';
- const trust=d.verified
-   ? '<span class="chip" title="Revenue comes from Shopify order webhooks, which are cryptographically verified.">Verified revenue</span>'
-   : '<span class="chip" title="Revenue is reported by the storefront pixel. It is useful for attribution but is not cryptographically verified.">Reported revenue</span>';
- const products=(d.topProducts||[]).map(p=>'<tr><td><b>'+esc(p.product)+'</b></td><td>'+num(p.events)+'</td><td>'+money(p.revenue)+'</td></tr>').join('');
- const s=d.summary||{};const visits=Number(s.visits||0),orders=Number(s.orders||0);const conv=visits?orders/visits*100:0;
- const rows=(d.sources||[]).map(x=>'<tr><td><b>'+esc(x.source)+'</b></td><td>'+num(x.visits)+'</td><td>'+num(x.orders)+'</td><td>'+money(x.revenue)+'</td></tr>').join('');
- const funnel=Object.fromEntries((d.funnel||[]).map(x=>[x.event_type,Number(x.count)]));
- document.querySelector('#dashboard').innerHTML='<div style="margin-bottom:14px">'+trust+mixed+'</div><div class="metrics"><div class="metric"><span class="muted">AI visits</span><b>'+num(visits)+delta(visits,prev.visits)+'</b></div><div class="metric"><span class="muted">AI orders</span><b>'+num(orders)+delta(orders,prev.orders)+'</b></div><div class="metric"><span class="muted">AI revenue</span><b>'+money(s.revenue)+delta(s.revenue,prev.revenue)+'</b></div><div class="metric"><span class="muted">Conversion</span><b>'+conv.toFixed(1)+'%</b></div></div><div class="two"><div class="card"><h3>AI sources</h3><table class="table"><thead><tr><th>Source</th><th>Visits</th><th>Orders</th><th>Revenue</th></tr></thead><tbody>'+rows+'</tbody></table></div><div class="card"><h3>Observed funnel</h3><div class="finding"><span class="dot good"></span><div>Page views</div><b>'+num(funnel.page_viewed||0)+'</b></div><div class="finding"><span class="dot good"></span><div>Product views</div><b>'+num(funnel.product_viewed||0)+'</b></div><div class="finding"><span class="dot warn"></span><div>Checkouts started</div><b>'+num(funnel.checkout_started||0)+'</b></div><div class="finding"><span class="dot good"></span><div>Checkouts completed</div><b>'+num(funnel.checkout_completed||0)+'</b></div></div></div><div class="card" style="margin-top:16px"><h3>Top products</h3>'+(products?'<table class="table"><thead><tr><th>Product</th><th>Events</th><th>Revenue</th></tr></thead><tbody>'+products+'</tbody></table>':'<div class="empty">No product activity from identifiable AI referrals yet.</div>')+'</div>';
-}).catch(()=>{document.querySelector('#dashboard').innerHTML='<div class="card empty"><h3>No connected store yet</h3><p>Connect Shopify from the home page or use the demo dashboard.</p><a class="btn primary" href="/">Connect a store</a></div>'});
-</script>`);}
+const delta=(cur,prev)=>{const c=Number(cur||0),p=Number(prev||0);if(!p)return '';const d=(c-p)/p*100;return '<span class="muted" style="font-size:13px"> '+(d>=0?'+':'\u2212')+Math.abs(d).toFixed(1)+'%</span>';};
+const set=(id,html)=>{document.querySelector('#panel-'+id).innerHTML=html;};
+const getJSON=(u,o)=>fetch(u,Object.assign({credentials:'same-origin'},o||{})).then(r=>r.ok?r.json():Promise.reject(r.status));
+
+document.querySelectorAll('.tab').forEach(t=>t.addEventListener('click',()=>{
+  document.querySelectorAll('.tab').forEach(x=>x.classList.remove('on'));
+  t.classList.add('on');
+  document.querySelectorAll('.panel').forEach(p=>{p.hidden=true;});
+  document.querySelector('#panel-'+t.dataset.tab).hidden=false;
+}));
+
+function signedOut(id,what){set(id,'<div class="card empty"><h3>No connected store yet</h3><p>Connect Shopify to see '+what+'.</p><a class="btn primary" href="/">Connect a store</a></div>');}
+
+// ---- AI traffic (the original attribution dashboard) ----
+getJSON('/api/dashboard'+(demo?'?demo=1':'')).then(d=>{
+  CUR=d.currency||'USD';
+  const s=d.summary||{},prev=d.previous||{};
+  const visits=Number(s.visits||0),orders=Number(s.orders||0),conv=visits?orders/visits*100:0;
+  const trust=d.verified
+    ? '<span class="chip" title="Revenue comes from Shopify order webhooks, which are cryptographically verified.">Verified revenue</span>'
+    : '<span class="chip" title="Revenue is reported by the storefront pixel. Useful for attribution, but not cryptographically verified.">Reported revenue</span>';
+  const mixed=Number(d.currencyCount||0)>1?'<span class="chip" style="margin-left:8px">mixed currencies \u2014 totals are approximate</span>':'';
+  const rows=(d.sources||[]).map(x=>'<tr><td><b>'+esc(x.source)+'</b></td><td>'+num(x.visits)+'</td><td>'+num(x.orders)+'</td><td>'+money(x.revenue)+'</td></tr>').join('');
+  const funnel=Object.fromEntries((d.funnel||[]).map(x=>[x.event_type,Number(x.count)]));
+  const products=(d.topProducts||[]).map(p=>'<tr><td><b>'+esc(p.product)+'</b></td><td>'+num(p.events)+'</td><td>'+money(p.revenue)+'</td></tr>').join('');
+  set('traffic','<div style="margin-bottom:14px">'+trust+mixed+'</div>'
+   +'<div class="metrics"><div class="metric"><span class="muted">AI visits</span><b>'+num(visits)+delta(visits,prev.visits)+'</b></div>'
+   +'<div class="metric"><span class="muted">AI orders</span><b>'+num(orders)+delta(orders,prev.orders)+'</b></div>'
+   +'<div class="metric"><span class="muted">AI revenue</span><b>'+money(s.revenue)+delta(s.revenue,prev.revenue)+'</b></div>'
+   +'<div class="metric"><span class="muted">Conversion</span><b>'+conv.toFixed(1)+'%</b></div></div>'
+   +'<div class="two"><div class="card"><h3>AI sources</h3><table class="table"><thead><tr><th>Source</th><th>Visits</th><th>Orders</th><th>Revenue</th></tr></thead><tbody>'+rows+'</tbody></table></div>'
+   +'<div class="card"><h3>Observed funnel</h3>'
+   +'<div class="finding"><span class="dot good"></span><div>Page views</div><b>'+num(funnel.page_viewed||0)+'</b></div>'
+   +'<div class="finding"><span class="dot good"></span><div>Product views</div><b>'+num(funnel.product_viewed||0)+'</b></div>'
+   +'<div class="finding"><span class="dot warn"></span><div>Checkouts started</div><b>'+num(funnel.checkout_started||0)+'</b></div>'
+   +'<div class="finding"><span class="dot good"></span><div>Checkouts completed</div><b>'+num(funnel.checkout_completed||0)+'</b></div></div></div>'
+   +'<div class="card" style="margin-top:16px"><h3>Top products</h3>'
+   +(products?'<table class="table"><thead><tr><th>Product</th><th>Events</th><th>Revenue</th></tr></thead><tbody>'+products+'</tbody></table>':'<div class="empty">No product activity from identifiable AI referrals yet.</div>')+'</div>');
+}).catch(()=>signedOut('traffic','which AI assistants are sending you customers'));
+
+if(demo){
+  const soon='<div class="card empty"><h3>Available once a store is connected</h3><p>This demo shows AI traffic only.</p></div>';
+  ['overview','ready','fixes','layer'].forEach(id=>set(id,soon));
+}else{
+  // ---- Overview ----
+  Promise.allSettled([getJSON('/api/monitoring'),getJSON('/api/fixes'),getJSON('/api/ai-layer'),getJSON('/api/sync/status')])
+  .then(([mon,fix,layer,sync])=>{
+    const history=mon.status==='fulfilled'?(mon.value.history||[]):[];
+    const latest=history[0];
+    const f=fix.status==='fulfilled'?fix.value:{automatic:[],needsApproval:[],done:[],failed:[]};
+    const l=layer.status==='fulfilled'?layer.value:null;
+    const sy=sync.status==='fulfilled'?sync.value:null;
+    const scoreCard=latest
+      ? '<div class="metric"><span class="muted">Agent Ready score</span><b>'+num(latest.score)
+        +(latest.delta!=null&&latest.delta!==0?'<span class="delta '+(latest.delta>0?'up':'down')+'" style="font-size:14px"> '+(latest.delta>0?'+':'\u2212')+Math.abs(latest.delta)+'</span>':'')+'</b>'
+        +'<div class="muted" style="font-size:12px">'+esc(latest.grade||'')+'</div></div>'
+      : '<div class="metric"><span class="muted">Agent Ready score</span><b>—</b><div class="muted" style="font-size:12px">Not scanned yet</div></div>';
+    const reauth=sy&&sy.needsReauthorization
+      ? '<div class="card" style="margin-top:16px;border-color:var(--warn)"><b>AgentCart needs another permission.</b><div class="muted">Reconnect your store to grant it, then run the fixes again.</div><div class="formRow"><a class="btn primary" href="/">Reconnect</a></div></div>' : '';
+    set('overview','<div class="metrics">'+scoreCard
+      +'<div class="metric"><span class="muted">Fixes we can apply</span><b>'+num(f.automatic.length)+'</b></div>'
+      +'<div class="metric"><span class="muted">Awaiting your approval</span><b>'+num(f.needsApproval.length)+'</b></div>'
+      +'<div class="metric"><span class="muted">AI layer</span><b>'+(l&&l.active?'Live':'Off')+'</b></div></div>'+reauth
+      +'<div class="card" style="margin-top:16px"><h3>Readiness history</h3>'
+      +(history.length?'<table class="table"><thead><tr><th>When</th><th>Score</th><th>Change</th><th>Checked</th></tr></thead><tbody>'
+        +history.map(h=>'<tr><td>'+esc(String(new Date(Number(h.started_ms)).toISOString()).slice(0,16).replace("T"," "))+'</td><td>'+num(h.score)+'</td><td>'+(h.delta==null?'<span class="muted">—</span>':(h.delta>0?'+':'\u2212')+Math.abs(h.delta))+'</td><td class="muted">'+esc(h.trigger==='monitor'?'Automatic':'You')+'</td></tr>').join('')
+        +'</tbody></table>':'<div class="empty">No readiness scans yet. Run one from the Agent Ready tab.</div>')+'</div>');
+  });
+
+  // ---- Agent Ready ----
+  set('ready','<div class="card"><h3>Check your website</h3><p class="muted">Run a fresh Agent Ready assessment of your public website.</p>'
+    +'<form class="formRow" action="/scan" method="get"><input class="input" name="url" placeholder="yourbusiness.com" required><button class="btn primary">Run a check</button></form></div>');
+
+  // ---- Fixes ----
+  const fixRow=(f,actions)=>'<div class="fix"><span class="dot '+(f.status==='verified'?'good':f.status==='failed'?'bad':'warn')+'"></span>'
+    +'<div><b>'+esc(f.summary||f.finding_key)+'</b><div class="muted" style="font-size:13px">'+esc(f.status)+(f.error?' — '+esc(f.error):'')+'</div></div>'
+    +'<div>'+actions+'</div></div>';
+  function loadFixes(){
+    getJSON('/api/fixes').then(f=>{
+      const section=(title,items,actions,empty)=>'<div class="card" style="margin-top:16px"><h3>'+title+'</h3>'
+        +(items.length?items.map(i=>fixRow(i,actions(i))).join(''):'<div class="empty">'+empty+'</div>')+'</div>';
+      set('fixes','<div class="card"><h3>What AgentCart can fix</h3><p class="muted">Nothing your customers can see is changed without your approval.</p>'
+        +'<div class="formRow"><button class="btn" id="propose">Find fixes</button><button class="btn primary" id="applyauto">Apply safe fixes</button></div></div>'
+        +section('Ready to apply',f.automatic,()=> '<span class="pill auto">Safe</span>','Nothing to apply. Try "Find fixes".')
+        +section('Needs your approval',f.needsApproval,i=>'<button class="btn approve" data-id="'+esc(i.id)+'">Approve and apply</button>','Nothing is waiting on you.')
+        +section('Done',f.done,()=> '<span class="pill auto">Verified</span>','No fixes have been applied yet.')
+        +(f.failed.length?section('Could not be applied',f.failed,()=> '<span class="pill manual">Failed</span>',''):''));
+      document.querySelector('#propose').onclick=()=>{set('fixes','<div class="empty">Working out what can be fixed…</div>');
+        getJSON('/api/fixes/propose',{method:'POST'}).then(loadFixes).catch(()=>loadFixes());};
+      document.querySelector('#applyauto').onclick=()=>{set('fixes','<div class="empty">Applying…</div>');
+        getJSON('/api/fixes/x/apply-automatic',{method:'POST'}).then(loadFixes).catch(()=>loadFixes());};
+      document.querySelectorAll('.approve').forEach(b=>b.onclick=()=>{
+        const id=b.dataset.id;
+        getJSON('/api/fixes/'+encodeURIComponent(id)+'/approve',{method:'POST'})
+          .then(()=>getJSON('/api/fixes/'+encodeURIComponent(id)+'/apply',{method:'POST'}))
+          .then(loadFixes).catch(()=>loadFixes());});
+    }).catch(()=>signedOut('fixes','what can be fixed'));
+  }
+  loadFixes();
+
+  // ---- AI layer ----
+  getJSON('/api/ai-layer').then(l=>{
+    set('layer','<div class="card"><h3>Your AI profile</h3>'
+      +'<p class="muted">A clean, machine-readable description of your business that AI systems can read directly.</p>'
+      +'<table class="table"><tbody>'
+      +'<tr><th>Status</th><td>'+(l.active?'Live':'Switched off')+'</td></tr>'
+      +'<tr><th>Public page</th><td><a href="'+esc(l.publicUrl)+'">'+esc(l.publicUrl)+'</a></td></tr>'
+      +'<tr><th>JSON</th><td><code>'+esc(l.apiUrl)+'</code></td></tr>'
+      +'<tr><th>MCP</th><td><code>'+esc(l.mcpUrl)+'</code></td></tr>'
+      +'</tbody></table>'
+      +'<div class="formRow"><a class="btn" href="'+esc(l.publicUrl)+'">See what AI is told</a>'
+      +'<button class="btn" id="toggleLayer">'+(l.active?'Switch off':'Switch on')+'</button></div></div>');
+    document.querySelector('#toggleLayer').onclick=()=>{
+      fetch('/api/ai-layer',{method:'POST',credentials:'same-origin',headers:{'content-type':'application/json'},
+        body:JSON.stringify({active:!l.active})}).then(()=>location.reload());};
+  }).catch(()=>signedOut('layer','your AI profile'));
+}
+</script>`);
+}
 
 export function agentReadyPage(report:AgentReadyReport,comparison?:{delta:number|null;comparable:boolean;previous:{score:number}|null}|null){
   return layout(`Agent Ready: ${report.domain}`,reportBody(report,comparison));

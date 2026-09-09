@@ -10,7 +10,7 @@ import { consumeOAuthState, countCustomerEvents, deleteShop, getDashboardWindows
 import { createWebPixel, encryptToken, exchangeCode, installUrl, normalizeOrderId, pixelSettings, randomState, parseSession, safeCompare, sessionCookie, validShop, verifyOAuthHmac, verifyWebhookHmac, webPixelUpdate } from "./shopify";
 import { agentReadyPage, aiProfilePage, dashboardPage, errorPage, homePage, privacyPage, setupPage, termsPage } from "./ui";
 
-const html=(body:string,status=200,headers:HeadersInit={})=>new Response(body,{status,headers:{"content-type":"text/html; charset=utf-8","x-content-type-options":"nosniff","referrer-policy":"strict-origin-when-cross-origin","permissions-policy":"camera=(), microphone=(), geolocation=()",...headers}});
+const html=(body:string,status=200,headers:HeadersInit={})=>new Response(body,{status,headers:{"content-type":"text/html; charset=utf-8","x-content-type-options":"nosniff","referrer-policy":"strict-origin-when-cross-origin","permissions-policy":"camera=(), microphone=(), geolocation=()","content-security-policy":"default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; connect-src 'self'; form-action 'self'; frame-ancestors 'none'; base-uri 'none'",...headers}});
 const json=(data:unknown,status=200,headers:HeadersInit={})=>new Response(JSON.stringify(data),{status,headers:{"content-type":"application/json; charset=utf-8","cache-control":"no-store",...headers}});
 
 export function aiSource(referrer?:string){
@@ -62,9 +62,9 @@ function safeDomain(input:string){
   catch{return input.trim().slice(0,120).toLowerCase();}
 }
 
-async function scanGate(request:Request,env:Env){
-  try{return await rateLimit(env,"scan",request.headers.get("cf-connecting-ip")||"unknown",10,60000);}
-  catch{return {ok:true,count:0,limit:10,retryAfter:0};}
+async function scanGate(request:Request,env:Env,limit=10){
+  try{return await rateLimit(env,"scan",request.headers.get("cf-connecting-ip")||"unknown",limit,60000);}
+  catch{return {ok:true,count:0,limit,retryAfter:0};}
 }
 
 // A cookie alone is not enough to prove a live session: the signature and its embedded
@@ -126,6 +126,8 @@ async function route(request:Request,env:Env):Promise<Response>{
   if(request.method==="GET"&&path.startsWith("/api/report/")){
     const domain=decodeURIComponent(path.slice("/api/report/".length)).toLowerCase();
     if(!domain)return json({error:"No domain supplied."},400);
+    const gate=await scanGate(request,env,60);
+    if(!gate.ok)return json({error:"Rate limit exceeded."},429,{"retry-after":String(gate.retryAfter)});
     const comparison=await getScanComparison(env,domain);
     if(!comparison)return json({error:"That website has not been scanned yet."},404);
     return json({comparison,findings:await getFindings(env,String(comparison.latest.id))});
@@ -134,6 +136,8 @@ async function route(request:Request,env:Env):Promise<Response>{
   if(request.method==="GET"&&path.startsWith("/api/history/")){
     const domain=decodeURIComponent(path.slice("/api/history/".length)).toLowerCase();
     if(!domain)return json({error:"No domain supplied."},400);
+    const gate=await scanGate(request,env,60);
+    if(!gate.ok)return json({error:"Rate limit exceeded."},429,{"retry-after":String(gate.retryAfter)});
     return json({domain,history:await getScanHistory(env,domain)});
   }
 
@@ -297,7 +301,7 @@ async function route(request:Request,env:Env):Promise<Response>{
     return json(await getDashboardWindows(env,shop,Date.now()));
   }
 
-  if(path==="/api/events"&&request.method==="OPTIONS")return new Response(null,{status:204,headers:{"access-control-allow-origin":"*","access-control-allow-methods":"POST,OPTIONS","access-control-allow-headers":"content-type","access-control-max-age":"86400"}});
+  if(path==="/api/events"&&request.method==="OPTIONS")return new Response(null,{status:204,headers:{"access-control-allow-origin":"*","access-control-allow-methods":"POST,OPTIONS","access-control-allow-headers":"content-type, x-agentcart-token","access-control-max-age":"86400"}});
   if(path==="/api/events"&&request.method==="POST"){
     try{
       const size=Number(request.headers.get("content-length")||0);if(size>100000)return json({error:"Payload too large"},413,{"access-control-allow-origin":"*"});

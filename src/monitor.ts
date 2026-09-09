@@ -90,7 +90,8 @@ export async function monitoringHistory(env:Env,shop:string,limit=12){
     FROM scan_runs r JOIN businesses b ON b.domain=r.domain
     WHERE b.connected_shop_domain=? AND r.status='complete'
     ORDER BY r.started_ms DESC LIMIT ?`).bind(shop,limit).all();
-  const runs=rows.results as Array<Record<string,unknown>>;
+  const runs=rows.results as Array<{id:string;domain:string;score:number;grade:string;trigger:string;
+    started_ms:number;scoring_version:string}>;
   return runs.map((run,i)=>{
     const prior=runs[i+1];
     // Only compare like with like; a different scoring model is not a score change.

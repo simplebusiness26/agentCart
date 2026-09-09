@@ -132,7 +132,11 @@ describe('session cookie',()=>{
   });
   it('rejects a tampered signature',async()=>{
     const c=val(await sessionCookie(TEST_SECRET,'demo.myshopify.com'));
-    expect(await parseSession(TEST_SECRET,c.replace(/.$/,'0'))).toBe(null);
+    // Flip the final hex digit to a guaranteed different one. Substituting a fixed
+    // character is a no-op whenever the signature already ends in it, which made this
+    // test pass or fail depending on the signature -- flaky roughly one run in sixteen.
+    const last=c.slice(-1);
+    expect(await parseSession(TEST_SECRET,c.slice(0,-1)+(last==='a'?'b':'a'))).toBe(null);
   });
   it('rejects a wrong secret',async()=>{
     const c=val(await sessionCookie(TEST_SECRET,'demo.myshopify.com'));
