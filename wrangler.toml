@@ -3,6 +3,11 @@ main = "src/index.ts"
 compatibility_date = "2026-09-01"
 workers_dev = true
 
+# Daily rescan of connected businesses. runMonitorPass processes a small batch per
+# firing, so this stays inside free-tier limits as the number of stores grows.
+[triggers]
+crons = ["17 3 * * *"]
+
 [vars]
 APP_URL = "http://localhost:8787"
 SHOPIFY_API_VERSION = "2026-07"

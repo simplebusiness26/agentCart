@@ -5,6 +5,7 @@ import { ShopifyScopeError, getBusinessProfile, getLastSync, syncConnectedStore 
 import { buildProfile, ensureProfile, getActions, getCatalogView, getItemView, getPolicies, getProfileMeta, resolveSlug, searchCatalogView, setProfileActive } from "./ailayer/service";
 import { handleMcp } from "./ailayer/mcp";
 import { ApprovalRequiredError, applyAllAutomatic, applyFix, approveFix, listFixes, proposeFixes } from "./fixes";
+import { linkShopToBusiness, monitoringHistory, runMonitorPass } from "./monitor";
 import { consumeOAuthState, countCustomerEvents, deleteShop, getDashboardWindows, getShop, insertEvent, logComplianceRequest, putOAuthState, rateLimit, redactCustomer, saveOrder, saveShop, setIngestToken, updatePixelId } from "./db";
 import { createWebPixel, encryptToken, exchangeCode, installUrl, normalizeOrderId, pixelSettings, randomState, parseSession, safeCompare, sessionCookie, validShop, verifyOAuthHmac, verifyWebhookHmac, webPixelUpdate } from "./shopify";
 import { agentReadyPage, aiProfilePage, dashboardPage, errorPage, homePage, privacyPage, setupPage, termsPage } from "./ui";
@@ -173,8 +174,15 @@ async function route(request:Request,env:Env):Promise<Response>{
       // Pull authoritative catalogue data now so the dashboard and AI layer have
       // something immediately. Non-fatal for the same reason pixel activation is: the
       // install has already committed.
-      try{await syncConnectedStore(env,shop);await ensureProfile(env,shop);}
-      catch(e){console.error("initial store sync failed",e);}
+      try{
+        await syncConnectedStore(env,shop);
+        await ensureProfile(env,shop);
+        // Point monitoring at the merchant's real storefront rather than the
+        // myshopify domain, when the sync told us what it is.
+        const profile=await getBusinessProfile(env,shop);
+        const site=String(profile?.primary_url||"");
+        if(site){try{await linkShopToBusiness(env,shop,new URL(site).hostname.toLowerCase());}catch{/* ignore */}}
+      }catch(e){console.error("initial store sync failed",e);}
       const cookie=await sessionCookie(env.SHOPIFY_API_SECRET,shop,issuedAt);
       const location=`${env.APP_URL}/dashboard${pixelOk?"":"?pixel=failed"}`;
       return new Response(null,{status:302,headers:{location,"set-cookie":cookie}});
@@ -274,6 +282,12 @@ async function route(request:Request,env:Env):Promise<Response>{
       if(e instanceof ShopifyScopeError)return json({error:e.message,needsReauthorization:true},403);
       return json({error:e instanceof Error?e.message:"That fix could not be applied."},502);
     }
+  }
+
+  if(request.method==="GET"&&path==="/api/monitoring"){
+    const shop=await sessionShop(request,env);
+    if(!shop)return json({error:"No connected Shopify session."},401);
+    return json({history:await monitoringHistory(env,shop)});
   }
 
   if(request.method==="GET"&&path==="/api/dashboard"){
@@ -418,4 +432,19 @@ async function route(request:Request,env:Env):Promise<Response>{
   return json({error:"Not found"},404);
 }
 
-export default {async fetch(request:Request,env:Env){try{return await route(request,env);}catch(e){console.error(e);return json({error:"Unexpected AgentCart error"},500);}}};
+export default {
+  async fetch(request:Request,env:Env){
+    try{return await route(request,env);}
+    catch(e){console.error(e);return json({error:"Unexpected AgentCart error"},500);}
+  },
+  // Cron entrypoint. Rescans a small batch of connected businesses per firing so cost
+  // stays bounded on free-tier infrastructure however many stores connect.
+  async scheduled(_event:ScheduledController,env:Env,ctx:ExecutionContext){
+    ctx.waitUntil((async()=>{
+      try{
+        const outcomes=await runMonitorPass(env);
+        for(const o of outcomes)console.log(`monitor ${o.domain}: ${o.status} — ${o.detail}`);
+      }catch(e){console.error("monitor pass failed",e);}
+    })());
+  }
+};
