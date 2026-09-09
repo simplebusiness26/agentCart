@@ -6,7 +6,6 @@ workers_dev = true
 [vars]
 APP_URL = "http://localhost:8787"
 SHOPIFY_API_VERSION = "2026-07"
-DEMO_MODE = "true"
 
 # Rate limiting currently uses a D1 counter (see rateLimit in src/db.ts) so that it is
 # testable without workerd. At higher volume, Cloudflare's native binding avoids the

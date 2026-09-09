@@ -2,7 +2,6 @@ export interface Env {
   DB: D1Database;
   APP_URL: string;
   SHOPIFY_API_VERSION: string;
-  DEMO_MODE: string;
   SHOPIFY_API_KEY: string;
   SHOPIFY_API_SECRET: string;
   TOKEN_ENCRYPTION_KEY: string;

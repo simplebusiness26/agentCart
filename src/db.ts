@@ -15,15 +15,16 @@ export async function consumeOAuthState(env:Env,state:string,shop:string){
   return !!row&&row.shop_domain===shop&&row.expires_at>Date.now();
 }
 
-export async function saveShop(env:Env,shop:string,encryptedToken:string,pixelId?:string|null){
-  await env.DB.prepare(`INSERT INTO shops(shop_domain,encrypted_access_token,pixel_id,installed_at,updated_at)
-    VALUES(?,?,?,CURRENT_TIMESTAMP,CURRENT_TIMESTAMP)
+export async function saveShop(env:Env,shop:string,encryptedToken:string,pixelId?:string|null,sessionEpoch=Date.now()){
+  await env.DB.prepare(`INSERT INTO shops(shop_domain,encrypted_access_token,pixel_id,session_epoch,installed_at,updated_at)
+    VALUES(?,?,?,?,CURRENT_TIMESTAMP,CURRENT_TIMESTAMP)
     ON CONFLICT(shop_domain) DO UPDATE SET encrypted_access_token=excluded.encrypted_access_token,
-    pixel_id=COALESCE(excluded.pixel_id,shops.pixel_id),updated_at=CURRENT_TIMESTAMP`).bind(shop,encryptedToken,pixelId??null).run();
+    pixel_id=COALESCE(excluded.pixel_id,shops.pixel_id),session_epoch=excluded.session_epoch,updated_at=CURRENT_TIMESTAMP`)
+    .bind(shop,encryptedToken,pixelId??null,sessionEpoch).run();
 }
 
 export async function getShop(env:Env,shop:string){
-  return env.DB.prepare("SELECT shop_domain,encrypted_access_token,pixel_id FROM shops WHERE shop_domain=?").bind(shop).first<{shop_domain:string;encrypted_access_token:string;pixel_id:string|null}>();
+  return env.DB.prepare("SELECT shop_domain,encrypted_access_token,pixel_id,session_epoch FROM shops WHERE shop_domain=?").bind(shop).first<{shop_domain:string;encrypted_access_token:string;pixel_id:string|null;session_epoch:number}>();
 }
 
 export async function updatePixelId(env:Env,shop:string,pixelId:string){

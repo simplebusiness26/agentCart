@@ -1,6 +1,6 @@
 import {describe,expect,it} from 'vitest';
 import {createHmac} from 'node:crypto';
-import {decryptToken,encryptToken,randomState,sessionCookie,shopFromCookie,validShop,verifyOAuthHmac,verifyWebhookHmac} from '../src/shopify';
+import {SESSION_MAX_AGE_MS,decryptToken,encryptToken,parseSession,randomState,sessionCookie,validShop,verifyOAuthHmac,verifyWebhookHmac} from '../src/shopify';
 import {TEST_SECRET} from './helpers/env';
 
 const hmacHex=(secret:string,msg:string)=>createHmac('sha256',secret).update(msg).digest('hex');
@@ -118,31 +118,57 @@ describe('token encryption',()=>{
 });
 
 describe('session cookie',()=>{
+  const val=(c:string)=>c.split(';')[0];
+
   it('round-trips a shop domain',async()=>{
-    const cookie=await sessionCookie(TEST_SECRET,'demo.myshopify.com');
-    const value=cookie.split(';')[0];
-    expect(await shopFromCookie(TEST_SECRET,value)).toBe('demo.myshopify.com');
+    const c=await sessionCookie(TEST_SECRET,'demo.myshopify.com');
+    expect((await parseSession(TEST_SECRET,val(c)))?.shop).toBe('demo.myshopify.com');
   });
   it('sets HttpOnly, Secure and SameSite',async()=>{
-    const cookie=await sessionCookie(TEST_SECRET,'demo.myshopify.com');
-    expect(cookie).toContain('HttpOnly');
-    expect(cookie).toContain('Secure');
-    expect(cookie).toContain('SameSite=Lax');
+    const c=await sessionCookie(TEST_SECRET,'demo.myshopify.com');
+    expect(c).toContain('HttpOnly');
+    expect(c).toContain('Secure');
+    expect(c).toContain('SameSite=Lax');
   });
   it('rejects a tampered signature',async()=>{
-    const cookie=await sessionCookie(TEST_SECRET,'demo.myshopify.com');
-    expect(await shopFromCookie(TEST_SECRET,cookie.split(';')[0].replace(/.$/,'0'))).toBe(null);
+    const c=val(await sessionCookie(TEST_SECRET,'demo.myshopify.com'));
+    expect(await parseSession(TEST_SECRET,c.replace(/.$/,'0'))).toBe(null);
   });
   it('rejects a wrong secret',async()=>{
-    const cookie=await sessionCookie(TEST_SECRET,'demo.myshopify.com');
-    expect(await shopFromCookie('other',cookie.split(';')[0])).toBe(null);
+    const c=val(await sessionCookie(TEST_SECRET,'demo.myshopify.com'));
+    expect(await parseSession('other',c)).toBe(null);
   });
   it('returns null for a missing cookie',async()=>{
-    expect(await shopFromCookie(TEST_SECRET,null)).toBe(null);
-    expect(await shopFromCookie(TEST_SECRET,'other=1')).toBe(null);
+    expect(await parseSession(TEST_SECRET,null)).toBe(null);
+    expect(await parseSession(TEST_SECRET,'other=1')).toBe(null);
   });
   it('handles a shop domain containing dots',async()=>{
-    const cookie=await sessionCookie(TEST_SECRET,'a.b.myshopify.com');
-    expect(await shopFromCookie(TEST_SECRET,cookie.split(';')[0])).toBe('a.b.myshopify.com');
+    const c=val(await sessionCookie(TEST_SECRET,'a.b.myshopify.com'));
+    expect((await parseSession(TEST_SECRET,c))?.shop).toBe('a.b.myshopify.com');
+  });
+  it('carries an issued-at that the client cannot alter',async()=>{
+    const issued=Date.now()-1000;
+    const c=val(await sessionCookie(TEST_SECRET,'demo.myshopify.com',issued));
+    expect((await parseSession(TEST_SECRET,c))?.issuedAt).toBe(issued);
+    // rewriting the timestamp invalidates the signature
+    expect(await parseSession(TEST_SECRET,c.replace(String(issued),String(Date.now())))).toBe(null);
+  });
+  it('expires on its own, independent of the browser honouring Max-Age',async()=>{
+    const stale=Date.now()-SESSION_MAX_AGE_MS-1;
+    const c=val(await sessionCookie(TEST_SECRET,'demo.myshopify.com',stale));
+    expect(await parseSession(TEST_SECRET,c)).toBe(null);
+  });
+  it('accepts a cookie issued just inside the window',async()=>{
+    const fresh=Date.now()-SESSION_MAX_AGE_MS+60000;
+    const c=val(await sessionCookie(TEST_SECRET,'demo.myshopify.com',fresh));
+    expect((await parseSession(TEST_SECRET,c))?.shop).toBe('demo.myshopify.com');
+  });
+  it('rejects a cookie dated far in the future',async()=>{
+    const c=val(await sessionCookie(TEST_SECRET,'demo.myshopify.com',Date.now()+86400000));
+    expect(await parseSession(TEST_SECRET,c)).toBe(null);
+  });
+  it('rejects a malformed payload without throwing',async()=>{
+    for(const bad of ['agentcart_session=x','agentcart_session=a.b','agentcart_session=shop.notanumber.sig'])
+      expect(await parseSession(TEST_SECRET,bad),bad).toBe(null);
   });
 });

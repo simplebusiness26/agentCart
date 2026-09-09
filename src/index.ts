@@ -1,7 +1,7 @@
 import type { Env, PixelEventPayload, WebhookBody } from "./types";
 import { scanWebsite } from "./scanner";
 import { consumeOAuthState, countCustomerEvents, deleteShop, getDashboardWindows, getShop, insertEvent, logComplianceRequest, putOAuthState, rateLimit, redactCustomer, saveScan, saveShop, updatePixelId } from "./db";
-import { createWebPixel, encryptToken, exchangeCode, installUrl, randomState, sessionCookie, shopFromCookie, validShop, verifyOAuthHmac, verifyWebhookHmac } from "./shopify";
+import { createWebPixel, encryptToken, exchangeCode, installUrl, randomState, parseSession, sessionCookie, validShop, verifyOAuthHmac, verifyWebhookHmac } from "./shopify";
 import { dashboardPage, errorPage, homePage, privacyPage, scanPage, setupPage, termsPage } from "./ui";
 
 const html=(body:string,status=200,headers:HeadersInit={})=>new Response(body,{status,headers:{"content-type":"text/html; charset=utf-8","x-content-type-options":"nosniff","referrer-policy":"strict-origin-when-cross-origin","permissions-policy":"camera=(), microphone=(), geolocation=()",...headers}});
@@ -54,6 +54,18 @@ async function scanGate(request:Request,env:Env){
   catch{return {ok:true,count:0,limit:10,retryAfter:0};}
 }
 
+// A cookie alone is not enough to prove a live session: the signature and its embedded
+// expiry are checked, then the shop must still be installed, then the cookie must not
+// predate the current install. Any of the three revokes access on its own.
+async function sessionShop(request:Request,env:Env){
+  const session=await parseSession(env.SHOPIFY_API_SECRET,request.headers.get("cookie"));
+  if(!session)return null;
+  const row=await getShop(env,session.shop);
+  if(!row)return null;
+  if(Number(row.session_epoch||0)>session.issuedAt)return null;
+  return session.shop;
+}
+
 async function route(request:Request,env:Env):Promise<Response>{
   const url=new URL(request.url);
   const path=url.pathname;
@@ -88,8 +100,8 @@ async function route(request:Request,env:Env):Promise<Response>{
 
   if(request.method==="GET"&&path==="/connect"){
     const shop=(url.searchParams.get("shop")||"").trim().toLowerCase();
-    if(!validShop(shop))return json({error:"Enter a valid *.myshopify.com store domain."},400);
-    if(!env.SHOPIFY_API_KEY||!env.SHOPIFY_API_SECRET)return json({error:"Shopify credentials have not been configured yet. See /setup."},503);
+    if(!validShop(shop))return html(errorPage("That is not a Shopify store address","Enter your store's address in the form your-store.myshopify.com.","/","Back to AgentCart"),400);
+    if(!env.SHOPIFY_API_KEY||!env.SHOPIFY_API_SECRET)return html(errorPage("Shopify connection is not configured yet","This AgentCart deployment has no Shopify credentials set. The store owner needs to finish setup before stores can connect.","/setup","See setup steps"),503);
     const state=randomState();await putOAuthState(env,state,shop);
     return Response.redirect(installUrl(env,shop,state),302);
   }
@@ -98,29 +110,40 @@ async function route(request:Request,env:Env):Promise<Response>{
     const shop=(url.searchParams.get("shop")||"").toLowerCase();
     const state=url.searchParams.get("state")||"";
     const code=url.searchParams.get("code")||"";
-    if(!validShop(shop)||!state||!code)return json({error:"Invalid Shopify callback."},400);
-    if(!(await verifyOAuthHmac(url,env.SHOPIFY_API_SECRET)))return json({error:"Shopify signature check failed."},401);
-    if(!(await consumeOAuthState(env,state,shop)))return json({error:"Install session expired. Start again."},401);
+    if(!validShop(shop)||!state||!code)return html(errorPage("That Shopify link was incomplete","Some details were missing from the response Shopify sent back. Start the connection again from AgentCart.","/","Back to AgentCart"),400);
+    if(!(await verifyOAuthHmac(url,env.SHOPIFY_API_SECRET)))return html(errorPage("That Shopify link could not be verified","AgentCart could not confirm the response came from Shopify, so it was rejected. Start the connection again.","/","Back to AgentCart"),401);
+    if(!(await consumeOAuthState(env,state,shop)))return html(errorPage("That connection link has expired","Install links are valid for ten minutes and can only be used once. Start the connection again.","/","Back to AgentCart"),401);
     try{
       const token=await exchangeCode(env,shop,code);
       const encrypted=await encryptToken(token,env.TOKEN_ENCRYPTION_KEY);
-      await saveShop(env,shop,encrypted);
-      const pixelId=await createWebPixel(env,shop,token);
-      if(pixelId)await updatePixelId(env,shop,pixelId);
-      const cookie=await sessionCookie(env.SHOPIFY_API_SECRET,shop);
-      return new Response(null,{status:302,headers:{location:`${env.APP_URL}/dashboard`,"set-cookie":cookie}});
-    }catch(e){return json({error:e instanceof Error?e.message:"Shopify setup failed"},500);}
+      const issuedAt=Date.now();
+      await saveShop(env,shop,encrypted,null,issuedAt);
+      // Pixel activation is deliberately non-fatal. The install has already committed by
+      // this point, so throwing here would show a 500 to a merchant who is in fact
+      // connected. Surface it as a banner and let them retry instead.
+      let pixelOk=true;
+      try{
+        const pixelId=await createWebPixel(env,shop,token);
+        if(pixelId)await updatePixelId(env,shop,pixelId);
+      }catch(e){pixelOk=false;console.error("web pixel activation failed",e);}
+      const cookie=await sessionCookie(env.SHOPIFY_API_SECRET,shop,issuedAt);
+      const location=`${env.APP_URL}/dashboard${pixelOk?"":"?pixel=failed"}`;
+      return new Response(null,{status:302,headers:{location,"set-cookie":cookie}});
+    }catch(e){
+      console.error("shopify install failed",e);
+      return html(errorPage("AgentCart could not finish connecting your store","Shopify did not complete the connection. Please try again; if it keeps happening, check that the app credentials are correct.","/","Back to AgentCart"),500);
+    }
   }
 
   if(request.method==="GET"&&path==="/dashboard"){
     const demo=url.searchParams.get("demo")==="1";
-    const shop=demo?null:await shopFromCookie(env.SHOPIFY_API_SECRET,request.headers.get("cookie"));
-    return html(dashboardPage(demo,shop));
+    const shop=demo?null:await sessionShop(request,env);
+    return html(dashboardPage(demo,shop,url.searchParams.get("pixel")==="failed"));
   }
 
   if(request.method==="GET"&&path==="/api/dashboard"){
     if(url.searchParams.get("demo")==="1")return json(demoData);
-    const shop=await shopFromCookie(env.SHOPIFY_API_SECRET,request.headers.get("cookie"));
+    const shop=await sessionShop(request,env);
     if(!shop)return json({error:"No connected Shopify session."},401);
     return json(await getDashboardWindows(env,shop,Date.now()));
   }

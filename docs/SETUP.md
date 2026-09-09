@@ -49,7 +49,6 @@ Example:
 [vars]
 APP_URL = "https://agentcart.example.workers.dev"
 SHOPIFY_API_VERSION = "2026-07"
-DEMO_MODE = "true"
 ```
 
 ## 4. Create the Shopify app
