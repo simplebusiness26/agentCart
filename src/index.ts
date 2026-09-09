@@ -1,6 +1,6 @@
-import type { Env, PixelEventPayload } from "./types";
+import type { Env, PixelEventPayload, WebhookBody } from "./types";
 import { scanWebsite } from "./scanner";
-import { consumeOAuthState, deleteShop, getDashboard, getShop, insertEvent, putOAuthState, saveScan, saveShop, updatePixelId } from "./db";
+import { consumeOAuthState, countCustomerEvents, deleteShop, getDashboard, getShop, insertEvent, logComplianceRequest, putOAuthState, redactCustomer, saveScan, saveShop, updatePixelId } from "./db";
 import { createWebPixel, encryptToken, exchangeCode, installUrl, randomState, sessionCookie, shopFromCookie, validShop, verifyOAuthHmac, verifyWebhookHmac } from "./shopify";
 import { dashboardPage, homePage, privacyPage, scanPage, setupPage, termsPage } from "./ui";
 
@@ -122,8 +122,31 @@ async function route(request:Request,env:Env):Promise<Response>{
     const ok=await verifyWebhookHmac(env.SHOPIFY_API_SECRET,raw,request.headers.get("x-shopify-hmac-sha256"));
     if(!ok)return json({error:"Invalid webhook signature"},401);
     const topic=(request.headers.get("x-shopify-topic")||"").toLowerCase();
-    const shop=(request.headers.get("x-shopify-shop-domain")||"").toLowerCase();
-    if(topic==="app/uninstalled"||topic==="shop/redact")await deleteShop(env,shop);
+    let body:WebhookBody={};
+    try{body=JSON.parse(raw||"{}") as WebhookBody;}catch{body={};}
+    // Compliance payloads carry shop_domain; fall back to it when the header is absent,
+    // and never act on a value that is not a real myshopify domain.
+    const shop=(request.headers.get("x-shopify-shop-domain")||body.shop_domain||"").toLowerCase();
+    if(!validShop(shop))return json({error:"Invalid shop domain"},400);
+    const orderIds=(body.orders_requested||body.orders_to_redact||[]).map(v=>String(v));
+    const customerId=body.customer?.id!=null?String(body.customer.id):null;
+    if(topic==="app/uninstalled"){await deleteShop(env,shop);}
+    else if(topic==="shop/redact"){
+      await deleteShop(env,shop);
+      await logComplianceRequest(env,shop,topic,null,[],0);
+    }
+    else if(topic==="customers/redact"){
+      const removed=await redactCustomer(env,shop,orderIds);
+      await logComplianceRequest(env,shop,topic,customerId,orderIds,removed);
+    }
+    else if(topic==="customers/data_request"){
+      // Shopify requires the request be handled and the data delivered to the merchant
+      // within 30 days; it does not require an automated response payload. Record it
+      // with the matched row count so the owner can fulfil it -- see docs/USER_ACTIONS.md.
+      const matched=await countCustomerEvents(env,shop,orderIds);
+      await logComplianceRequest(env,shop,topic,customerId,orderIds,matched);
+    }
+    // Unknown topics acknowledge with 200: a non-2xx makes Shopify retry indefinitely.
     return json({ok:true});
   }
 

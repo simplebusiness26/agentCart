@@ -69,7 +69,14 @@ The MVP dashboard deliberately reports the first category.
 - OAuth callbacks use Shopify HMAC verification.
 - Shopify access tokens are AES-GCM encrypted before D1 storage.
 - Merchant sessions are HMAC signed and HttpOnly/Secure/SameSite=Lax.
-- Shopify webhook HMAC is verified before processing.
+- Shopify webhook HMAC is verified before processing, and the shop domain is validated
+  before any deletion is performed.
+- All three Shopify mandatory compliance webhooks are handled, not just acknowledged:
+  `app/uninstalled` and `shop/redact` delete the store record, its events and any pending
+  OAuth state; `customers/redact` deletes the identified orders and the browsing sessions
+  linked to them; `customers/data_request` is recorded with a count of matching records for
+  merchant fulfilment. Unknown topics return 200 so Shopify does not retry indefinitely.
+- Expired OAuth states are swept on each install attempt.
 - Pixel ingestion accepts only installed store domains and deduplicates event IDs.
 - No card details are collected.
 - The current app does not request customer email, phone, or address fields.

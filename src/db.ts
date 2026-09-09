@@ -1,7 +1,12 @@
 import type { Env, PixelEventPayload } from "./types";
 
 export async function putOAuthState(env:Env,state:string,shop:string){
-  await env.DB.prepare("INSERT OR REPLACE INTO oauth_states(state,shop_domain,expires_at) VALUES(?,?,?)").bind(state,shop,Date.now()+600000).run();
+  // Abandoned installs would otherwise accumulate forever; sweep here rather than
+  // adding a cron trigger for a table that grows one row per install attempt.
+  await env.DB.batch([
+    env.DB.prepare("DELETE FROM oauth_states WHERE expires_at<?").bind(Date.now()),
+    env.DB.prepare("INSERT OR REPLACE INTO oauth_states(state,shop_domain,expires_at) VALUES(?,?,?)").bind(state,shop,Date.now()+600000)
+  ]);
 }
 
 export async function consumeOAuthState(env:Env,state:string,shop:string){
@@ -26,10 +31,42 @@ export async function updatePixelId(env:Env,shop:string,pixelId:string){
 }
 
 export async function deleteShop(env:Env,shop:string){
+  // `scans` is keyed on the scanned hostname and has no link to `shops`, so only the
+  // case where the merchant scanned their own myshopify domain can be matched. Anything
+  // stronger would need a join that does not exist; the privacy page says so.
   await env.DB.batch([
     env.DB.prepare("DELETE FROM events WHERE shop_domain=?").bind(shop),
+    env.DB.prepare("DELETE FROM oauth_states WHERE shop_domain=?").bind(shop),
+    env.DB.prepare("DELETE FROM scans WHERE domain=?").bind(shop),
     env.DB.prepare("DELETE FROM shops WHERE shop_domain=?").bind(shop)
   ]);
+}
+
+export async function logComplianceRequest(env:Env,shop:string,topic:string,customerId:string|null,orderIds:string[],matched:number){
+  await env.DB.prepare("INSERT INTO compliance_requests(shop_domain,topic,customer_id,order_ids_json,matched_events) VALUES(?,?,?,?,?)")
+    .bind(shop,topic,customerId||null,JSON.stringify(orderIds),matched).run();
+}
+
+function orderPlaceholders(orderIds:string[]){return orderIds.map(()=>"?").join(",");}
+
+export async function countCustomerEvents(env:Env,shop:string,orderIds:string[]){
+  if(!orderIds.length)return 0;
+  const row=await env.DB.prepare(`SELECT COUNT(*) AS c FROM events WHERE shop_domain=? AND order_id IN (${orderPlaceholders(orderIds)})`)
+    .bind(shop,...orderIds).first<{c:number}>();
+  return Number(row?.c||0);
+}
+
+export async function redactCustomer(env:Env,shop:string,orderIds:string[]){
+  if(!orderIds.length)return 0;
+  const ph=orderPlaceholders(orderIds);
+  // Delete the identified orders' events, then anything else sharing those browsing
+  // sessions -- that is the same person's activity and is in scope for a redaction.
+  const before=await countCustomerEvents(env,shop,orderIds);
+  await env.DB.prepare(`DELETE FROM events WHERE shop_domain=? AND session_id IS NOT NULL AND session_id IN (
+      SELECT session_id FROM events WHERE shop_domain=? AND order_id IN (${ph}) AND session_id IS NOT NULL)`)
+    .bind(shop,shop,...orderIds).run();
+  await env.DB.prepare(`DELETE FROM events WHERE shop_domain=? AND order_id IN (${ph})`).bind(shop,...orderIds).run();
+  return before;
 }
 
 export async function insertEvent(env:Env,event:PixelEventPayload,sourceAgent:string,sourceHost:string){

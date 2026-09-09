@@ -36,6 +36,19 @@ Everything below requires access to an external account, a credential, an approv
 
 7. Replace the placeholder privacy/support contact text with the real business contact details.
 
+   **Customer data requests.** Shopify requires these to be fulfilled within 30 days.
+   AgentCart records each one in the `compliance_requests` table rather than emailing
+   automatically, so no transactional email provider is required. To fulfil one:
+
+   ```sql
+   SELECT * FROM compliance_requests WHERE topic='customers/data_request' AND resolved_at IS NULL;
+   SELECT * FROM events WHERE shop_domain=? AND order_id IN (...);
+   ```
+
+   Send the merchant the matching rows, then set `resolved_at`. AgentCart stores no
+   customer name, email, phone, address or payment data, so the returned set is limited
+   to attribution and funnel records.
+
 8. Decide the public pricing. The code currently has no billing gate because charging users before attribution is proven would slow validation.
 
 9. Create the public Shopify App Store listing assets:

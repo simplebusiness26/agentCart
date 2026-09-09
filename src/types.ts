@@ -44,3 +44,10 @@ export interface PixelEventPayload {
   currency?: string;
   raw?: unknown;
 }
+
+export interface WebhookBody {
+  shop_domain?: string;
+  customer?: { id?: string|number; email?: string };
+  orders_requested?: Array<string|number>;
+  orders_to_redact?: Array<string|number>;
+}
