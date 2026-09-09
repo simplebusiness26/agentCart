@@ -7,7 +7,7 @@ import { dashboardPage, homePage, privacyPage, scanPage, setupPage, termsPage } 
 const html=(body:string,status=200,headers:HeadersInit={})=>new Response(body,{status,headers:{"content-type":"text/html; charset=utf-8","x-content-type-options":"nosniff","referrer-policy":"strict-origin-when-cross-origin","permissions-policy":"camera=(), microphone=(), geolocation=()",...headers}});
 const json=(data:unknown,status=200,headers:HeadersInit={})=>new Response(JSON.stringify(data),{status,headers:{"content-type":"application/json; charset=utf-8","cache-control":"no-store",...headers}});
 
-function aiSource(referrer?:string){
+export function aiSource(referrer?:string){
   if(!referrer)return {agent:"Direct / unknown",host:""};
   try{
     const host=new URL(referrer).hostname.toLowerCase();
