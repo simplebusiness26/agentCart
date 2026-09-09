@@ -166,7 +166,7 @@ npm run typecheck
 npm test
 ```
 
-GitHub Actions also runs these checks on pushes and pull requests once the workflow is enabled.
+GitHub Actions runs these checks on pushes to `main` and on every pull request.
 
 ## 11. Before a public Shopify App Store submission
 

@@ -1,11 +1,12 @@
 import {register} from '@shopify/web-pixels-extension';
+import type {PixelEvent} from '@shopify/web-pixels-extension';
 
-register(({analytics,browser,settings}:any)=>{
+register(({analytics,browser,settings})=>{
   const sourceKey='agentcart_source_referrer';
   const endpoint=String(settings.endpoint||'');
   const shop=String(settings.shop||'');
 
-  const send=async(event:any)=>{
+  const send=async(event:PixelEvent)=>{
     if(!endpoint||!shop)return;
     const liveRef=String(event?.context?.document?.referrer||'');
     let sourceRef=await browser.sessionStorage.getItem(sourceKey).catch(()=>"");
