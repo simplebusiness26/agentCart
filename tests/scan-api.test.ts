@@ -102,3 +102,46 @@ describe('GET /api/report and /api/history',()=>{
     expect(Number(body.history[0].started_ms)).toBeGreaterThanOrEqual(Number(body.history[1].started_ms));
   });
 });
+
+describe('GET /scan renders the report page',()=>{
+  it('returns an HTML Agent Ready report',async()=>{
+    mockSite(SITE);
+    const res=await worker.fetch(new Request('https://agentcart.example/scan?url=example.com',{
+      headers:{'cf-connecting-ip':'4.4.4.4'}}),env);
+    expect(res.status).toBe(200);
+    expect(res.headers.get('content-type')).toContain('text/html');
+    const body=await res.text();
+    expect(body).toContain('Agent Ready score');
+    expect(body).toContain('What AI can and cannot understand');
+    expect(body).toContain('Score breakdown');
+  });
+
+  it('shows the delta on a repeat scan',async()=>{
+    mockSite(SITE);
+    const req=()=>worker.fetch(new Request('https://agentcart.example/scan?url=example.com',{
+      headers:{'cf-connecting-ip':'4.4.4.5'}}),env);
+    await req();
+    expect(await (await req()).text()).toContain('since your last scan');
+  });
+
+  it('renders an error page for an unreachable site',async()=>{
+    mockSite({});
+    const res=await worker.fetch(new Request('https://agentcart.example/scan?url=example.com',{
+      headers:{'cf-connecting-ip':'4.4.4.6'}}),env);
+    expect(res.status).toBe(400);
+    expect(res.headers.get('content-type')).toContain('text/html');
+  });
+});
+
+describe('home page reflects the Agent Ready product',()=>{
+  it('leads with the readiness question, not attribution',async()=>{
+    const body=await (await worker.fetch(new Request('https://agentcart.example/'),env)).text();
+    expect(body).toContain('Can AI customers understand your business?');
+    expect(body).toContain('Check my website');
+  });
+  it('still offers the attribution dashboard as a secondary benefit',async()=>{
+    const body=await (await worker.fetch(new Request('https://agentcart.example/'),env)).text();
+    expect(body).toContain('demo dashboard');
+    expect(body).toContain('rather than guessing');
+  });
+});

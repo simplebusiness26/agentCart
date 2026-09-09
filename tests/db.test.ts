@@ -1,5 +1,5 @@
 import {beforeEach,describe,expect,it} from 'vitest';
-import {WINDOW_MS,consumeOAuthState,deleteShop,getDashboard,getDashboardWindows,getShop,insertEvent,putOAuthState,saveScan,saveShop,updatePixelId} from '../src/db';
+import {WINDOW_MS,consumeOAuthState,deleteShop,getDashboard,getDashboardWindows,getShop,insertEvent,putOAuthState,saveShop,updatePixelId} from '../src/db';
 import {fakeEnv} from './helpers/env';
 import {migrationFiles} from './helpers/d1';
 import type {Env,PixelEventPayload} from '../src/types';
@@ -108,15 +108,5 @@ describe('getDashboard',()=>{
     expect(Number(d.summary.visits)).toBe(2);
     expect(Number(d.summary.orders)).toBe(1);
     expect(Number(d.summary.revenue)).toBe(50);
-  });
-});
-
-describe('saveScan',()=>{
-  it('persists a scan row',async()=>{
-    await saveScan(env,'example.com',72,[{key:'title'}]);
-    const row=sqlite.prepare('select domain,score,findings_json from scans').get();
-    expect(row.domain).toBe('example.com');
-    expect(row.score).toBe(72);
-    expect(JSON.parse(row.findings_json)[0].key).toBe('title');
   });
 });

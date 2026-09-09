@@ -1,10 +1,9 @@
 import type { Env, PixelEventPayload, WebhookBody } from "./types";
-import { scanWebsite } from "./scanner";
 import { assessSite } from "./agentready";
 import { getFindings, getScanComparison, getScanHistory, recordFailedScan, saveScanRun } from "./agentready/store";
-import { consumeOAuthState, countCustomerEvents, deleteShop, getDashboardWindows, getShop, insertEvent, logComplianceRequest, putOAuthState, rateLimit, redactCustomer, saveOrder, saveScan, saveShop, setIngestToken, updatePixelId } from "./db";
+import { consumeOAuthState, countCustomerEvents, deleteShop, getDashboardWindows, getShop, insertEvent, logComplianceRequest, putOAuthState, rateLimit, redactCustomer, saveOrder, saveShop, setIngestToken, updatePixelId } from "./db";
 import { createWebPixel, encryptToken, exchangeCode, installUrl, normalizeOrderId, pixelSettings, randomState, parseSession, safeCompare, sessionCookie, validShop, verifyOAuthHmac, verifyWebhookHmac, webPixelUpdate } from "./shopify";
-import { dashboardPage, errorPage, homePage, privacyPage, scanPage, setupPage, termsPage } from "./ui";
+import { agentReadyPage, dashboardPage, errorPage, homePage, privacyPage, setupPage, termsPage } from "./ui";
 
 const html=(body:string,status=200,headers:HeadersInit={})=>new Response(body,{status,headers:{"content-type":"text/html; charset=utf-8","x-content-type-options":"nosniff","referrer-policy":"strict-origin-when-cross-origin","permissions-policy":"camera=(), microphone=(), geolocation=()",...headers}});
 const json=(data:unknown,status=200,headers:HeadersInit={})=>new Response(JSON.stringify(data),{status,headers:{"content-type":"application/json; charset=utf-8","cache-control":"no-store",...headers}});
@@ -90,10 +89,15 @@ async function route(request:Request,env:Env):Promise<Response>{
     const gate=await scanGate(request,env);
     if(!gate.ok)return html(errorPage("Too many scans","You have run a lot of scans in the last minute. Please wait a moment and try again.","/#scanner","Back to the scanner"),429,{"retry-after":String(gate.retryAfter)});
     try{
-      const result=await scanWebsite(target);
-      await saveScan(env,result.domain,result.score,result.findings).catch(()=>{});
-      return html(scanPage(result));
-    }catch(e){return html(errorPage("That scan could not complete",e instanceof Error?e.message:"Scan failed.","/#scanner","Try another website"),400);}
+      const report=await assessSite(target);
+      await saveScanRun(env,report).catch(()=>{});
+      const comparison=await getScanComparison(env,report.domain).catch(()=>null);
+      return html(agentReadyPage(report,comparison));
+    }catch(e){
+      const message=e instanceof Error?e.message:"Scan failed.";
+      await recordFailedScan(env,safeDomain(target),message).catch(()=>{});
+      return html(errorPage("That scan could not complete",message,"/#scanner","Try another website"),400);
+    }
   }
 
   if(request.method==="POST"&&path==="/api/scan"){

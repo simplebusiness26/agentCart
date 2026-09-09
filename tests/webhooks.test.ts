@@ -1,7 +1,7 @@
 import {beforeEach,describe,expect,it} from 'vitest';
 import {createHmac} from 'node:crypto';
 import worker from '../src/index';
-import {insertEvent,putOAuthState,saveScan,saveShop} from '../src/db';
+import {insertEvent,putOAuthState,saveShop} from '../src/db';
 import {TEST_SECRET,fakeEnv} from './helpers/env';
 import type {Env,PixelEventPayload} from '../src/types';
 
@@ -53,7 +53,7 @@ describe('app/uninstalled',()=>{
     await saveShop(env,SHOP,'tok');
     await insertEvent(env,ev({eventId:'a'}),'ChatGPT','chatgpt.com');
     await putOAuthState(env,'st',SHOP);
-    await saveScan(env,SHOP,50,[]);
+    sqlite.prepare("insert into scans(domain,score,findings_json) values(?,50,'[]')").run(SHOP);
     expect((await hook('app/uninstalled',{})).status).toBe(200);
     expect(count('shops')).toBe(0);
     expect(count('events')).toBe(0);

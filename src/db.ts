@@ -32,9 +32,10 @@ export async function updatePixelId(env:Env,shop:string,pixelId:string){
 }
 
 export async function deleteShop(env:Env,shop:string){
-  // `scans` is keyed on the scanned hostname and has no link to `shops`, so only the
-  // case where the merchant scanned their own myshopify domain can be matched. Anything
-  // stronger would need a join that does not exist; the privacy page says so.
+  // `scans` is the legacy table from the single-page scanner. Nothing writes it any
+  // more, but old rows are still cleared on uninstall. It is keyed on the scanned
+  // hostname with no link to `shops`, so only a merchant who scanned their own
+  // myshopify domain can be matched; the privacy page says so.
   await env.DB.batch([
     env.DB.prepare("DELETE FROM events WHERE shop_domain=?").bind(shop),
     env.DB.prepare("DELETE FROM oauth_states WHERE shop_domain=?").bind(shop),
@@ -82,14 +83,6 @@ export async function insertEvent(env:Env,event:PixelEventPayload,sourceAgent:st
     event.productId||null,event.productTitle||null,event.orderId||null,typeof event.amount==="number"?event.amount:null,
     event.currency||null,event.sessionId||null,JSON.stringify(event.raw??null)
   ).run();
-}
-
-export async function saveScan(env:Env,domain:string,score:number,findings:unknown){
-  await env.DB.batch([
-    env.DB.prepare("INSERT INTO scans(domain,score,findings_json) VALUES(?,?,?)").bind(domain,score,JSON.stringify(findings)),
-    // Anyone can write here, so cap how long it is kept rather than only how fast it grows.
-    env.DB.prepare("DELETE FROM scans WHERE created_at < datetime('now','-90 day')")
-  ]);
 }
 
 export const WINDOW_MS=30*24*60*60*1000;

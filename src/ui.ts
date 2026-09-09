@@ -1,17 +1,77 @@
-import type { ScanResult } from "./types";
+import type { AgentReadyReport } from "./agentready/types";
+import { reportBody } from "./report";
 
 const css=`
 :root{--bg:#08110f;--panel:#0e1a17;--panel2:#13231f;--text:#effbf5;--muted:#9bb7aa;--line:#203b33;--accent:#68f7b2;--accent2:#b9ffdc;--bad:#ff8d8d;--warn:#ffd27a;--good:#74efb3;font-family:Inter,ui-sans-serif,system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;color-scheme:dark}
 *{box-sizing:border-box}body{margin:0;background:radial-gradient(circle at 80% -20%,#163d31 0,transparent 38%),var(--bg);color:var(--text);line-height:1.5}a{color:inherit;text-decoration:none}.wrap{max-width:1120px;margin:auto;padding:0 22px}.nav{height:72px;display:flex;align-items:center;justify-content:space-between}.brand{font-size:21px;font-weight:850;letter-spacing:-.7px}.brand span{color:var(--accent)}.navlinks{display:flex;gap:18px;color:var(--muted);font-size:14px}.btn{display:inline-flex;align-items:center;justify-content:center;border-radius:12px;padding:12px 17px;font-weight:750;border:1px solid var(--line);background:var(--panel2);color:var(--text);cursor:pointer}.btn.primary{background:var(--accent);color:#06120e;border-color:var(--accent)}.hero{padding:72px 0 54px;display:grid;grid-template-columns:1.15fr .85fr;gap:44px;align-items:center}.eyebrow{color:var(--accent);font-weight:800;font-size:13px;text-transform:uppercase;letter-spacing:1.5px}.hero h1{font-size:clamp(44px,7vw,76px);line-height:.98;letter-spacing:-4px;margin:12px 0 22px}.hero p{font-size:19px;color:var(--muted);max-width:680px}.heroCard,.card{background:linear-gradient(145deg,rgba(19,35,31,.96),rgba(12,24,21,.96));border:1px solid var(--line);border-radius:22px;padding:24px;box-shadow:0 20px 70px rgba(0,0,0,.22)}.metricBig{font-size:48px;font-weight:850;letter-spacing:-2px}.muted{color:var(--muted)}.grid3{display:grid;grid-template-columns:repeat(3,1fr);gap:16px}.section{padding:54px 0}.section h2{font-size:36px;letter-spacing:-1.5px;margin:0 0 12px}.formRow{display:flex;gap:10px;margin-top:22px}.input{width:100%;padding:14px 15px;border-radius:12px;background:#07120f;border:1px solid var(--line);color:var(--text);font:inherit;outline:none}.input:focus{border-color:var(--accent)}.chip{display:inline-block;border:1px solid var(--line);padding:5px 9px;border-radius:999px;font-size:12px;color:var(--muted)}.score{width:112px;height:112px;border-radius:50%;display:grid;place-items:center;border:9px solid var(--accent);font-size:31px;font-weight:850}.finding{display:grid;grid-template-columns:28px 1fr auto;gap:12px;padding:16px 0;border-bottom:1px solid var(--line)}.finding:last-child{border:0}.dot{width:12px;height:12px;border-radius:50%;margin-top:7px}.good{background:var(--good)}.warn{background:var(--warn)}.bad{background:var(--bad)}.dashHead{display:flex;align-items:flex-end;justify-content:space-between;padding:40px 0 20px}.dashHead h1{margin:0;font-size:40px;letter-spacing:-1.8px}.metrics{display:grid;grid-template-columns:repeat(4,1fr);gap:14px}.metric{padding:20px;border:1px solid var(--line);border-radius:17px;background:var(--panel)}.metric b{display:block;font-size:29px;letter-spacing:-1px;margin-top:5px}.two{display:grid;grid-template-columns:1.15fr .85fr;gap:16px;margin-top:16px}.table{width:100%;border-collapse:collapse}.table th,.table td{padding:12px 8px;text-align:left;border-bottom:1px solid var(--line);font-size:14px}.table th{color:var(--muted);font-weight:650}.empty{padding:38px 10px;text-align:center;color:var(--muted)}.footer{padding:50px 0;color:var(--muted);font-size:13px;border-top:1px solid var(--line);margin-top:60px}.footerin{display:flex;justify-content:space-between;gap:15px}.legal{max-width:760px;padding:45px 0}.legal h1{font-size:42px}.legal h2{margin-top:34px}.legal p,.legal li{color:var(--muted)}.status{font-size:12px;padding:4px 8px;border-radius:999px;background:#17362c;color:var(--accent2)}
-@media(max-width:780px){.hero{grid-template-columns:1fr;padding-top:42px}.hero h1{letter-spacing:-2.5px}.grid3,.metrics,.two{grid-template-columns:1fr}.navlinks a:not(.keep){display:none}.formRow{flex-direction:column}.dashHead{align-items:flex-start;gap:14px;flex-direction:column}.footerin{flex-direction:column}.metric b{font-size:25px}}
+
+.catbar{height:8px;border-radius:99px;background:#0a1714;overflow:hidden;margin-top:8px}.catbar i{display:block;height:100%;background:var(--accent)}
+.cat{padding:14px 0;border-bottom:1px solid var(--line)}.cat:last-child{border:0}
+.catrow{display:flex;justify-content:space-between;gap:12px;align-items:baseline}
+.cando{display:grid;grid-template-columns:1fr 1fr;gap:16px}
+.cando ul{margin:8px 0 0;padding-left:18px}.cando li{margin:5px 0;color:var(--muted)}
+.pill{display:inline-block;font-size:11px;font-weight:750;padding:3px 8px;border-radius:99px;text-transform:uppercase;letter-spacing:.6px}
+.pill.auto{background:#17362c;color:var(--accent2)}.pill.approve{background:#3a3016;color:var(--warn)}
+.pill.manual{background:#2a2733;color:#cdbfe8}.pill.layer{background:#152c3a;color:#a9dcf7}
+.fix{display:grid;grid-template-columns:12px 1fr auto;gap:12px;padding:16px 0;border-bottom:1px solid var(--line)}
+.fix:last-child{border:0}.na{opacity:.55}
+.delta{font-size:14px;font-weight:750}.delta.up{color:var(--good)}.delta.down{color:var(--bad)}
+@media(max-width:780px){.hero{grid-template-columns:1fr;padding-top:42px}.hero h1{letter-spacing:-2.5px}.grid3,.metrics,.two{grid-template-columns:1fr}.navlinks a:not(.keep){display:none}.formRow{flex-direction:column}.dashHead{align-items:flex-start;gap:14px;flex-direction:column}.footerin{flex-direction:column}.metric b{font-size:25px}.cando{grid-template-columns:1fr}}
 `;
 
 function esc(v:string){return v.replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;","\"":"&quot;","'":"&#39;"}[c]||c));}
-function layout(title:string,body:string){return `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="description" content="AgentCart measures AI-referred commerce and helps Shopify stores improve their AI shopping readiness."><title>${esc(title)} · AgentCart</title><style>${css}</style></head><body><div class="wrap"><nav class="nav"><a class="brand" href="/">Agent<span>Cart</span></a><div class="navlinks"><a href="/#scanner">Free scan</a><a href="/dashboard?demo=1">Demo</a><a class="keep" href="/setup">Setup</a></div></nav></div>${body}<footer class="footer"><div class="wrap footerin"><div>© ${new Date().getFullYear()} AgentCart · AI commerce attribution & readiness.</div><div><a href="/privacy">Privacy</a> · <a href="/terms">Terms</a></div></div></footer></body></html>`;}
+function layout(title:string,body:string){return `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="description" content="AgentCart checks whether AI assistants can understand your business, helps you fix what is in the way, and shows whether AI is sending you customers."><title>${esc(title)} · AgentCart</title><style>${css}</style></head><body><div class="wrap"><nav class="nav"><a class="brand" href="/">Agent<span>Cart</span></a><div class="navlinks"><a href="/#scanner">Free check</a><a href="/dashboard?demo=1">Demo</a><a class="keep" href="/setup">Setup</a></div></nav></div>${body}<footer class="footer"><div class="wrap footerin"><div>© ${new Date().getFullYear()} AgentCart · AI commerce attribution & readiness.</div><div><a href="/privacy">Privacy</a> · <a href="/terms">Terms</a></div></div></footer></body></html>`;}
 
-export function homePage(){return layout("AI commerce analytics",`<main><div class="wrap"><section class="hero"><div><div class="eyebrow">AI shopping is becoming a sales channel</div><h1>See what AI is sending your store.</h1><p>AgentCart measures AI-referred visits and orders, then shows what to improve so shopping agents can understand and recommend your products more reliably.</p><div class="formRow"><a class="btn primary" href="#scanner">Run free store scan</a><a class="btn" href="/dashboard?demo=1">View live demo</a></div></div><div class="heroCard"><span class="chip">Last 30 days · Demo</span><div style="margin-top:22px" class="muted">AI-attributed revenue</div><div class="metricBig">£8,942</div><div class="grid3" style="margin-top:20px"><div><b>312</b><div class="muted">AI visits</div></div><div><b>47</b><div class="muted">Orders</div></div><div><b>15.1%</b><div class="muted">Conversion</div></div></div></div></section><section class="section"><div class="grid3"><div class="card"><span class="chip">ATTRIBUTION</span><h3>Know what converted</h3><p class="muted">Separate ChatGPT, Claude, Gemini, Perplexity, Copilot and other identifiable AI referrals.</p></div><div class="card"><span class="chip">READINESS</span><h3>See what agents struggle with</h3><p class="muted">Check structured product data, pricing, stock signals, metadata, crawlability and machine guidance.</p></div><div class="card"><span class="chip">ACTION</span><h3>Fix the highest-value gaps</h3><p class="muted">Turn measurements into a prioritized list of concrete commerce improvements.</p></div></div></section><section id="scanner" class="section"><div class="card"><div class="eyebrow">Free AI store check</div><h2>How understandable is your store to AI?</h2><p class="muted">No login required. We inspect public machine-readable signals only.</p><form class="formRow" action="/scan" method="get"><input class="input" name="url" type="text" inputmode="url" placeholder="yourstore.com" required><button class="btn primary" type="submit">Scan my store</button></form></div></section><section class="section"><div class="card"><h2>Connect Shopify when you're ready</h2><p class="muted">Once connected, AgentCart's Web Pixel receives consent-aware Shopify customer events so the dashboard can link identifiable AI referrals to funnel activity and completed checkouts.</p><form class="formRow" action="/connect" method="get"><input class="input" name="shop" placeholder="your-store.myshopify.com" required><button class="btn primary">Connect Shopify</button></form></div></section></div></main>`);}
+export function homePage(){return layout("Make your business ready for AI customers",`<main><div class="wrap">
+<section class="hero"><div>
+  <div class="eyebrow">AI assistants are becoming a sales channel</div>
+  <h1>Can AI customers understand your business?</h1>
+  <p>People increasingly ask an AI assistant what to buy and who to use. AgentCart checks whether those assistants can actually read your business, understand what you sell, and send you the customer &mdash; then helps you fix what is in the way.</p>
+  <form class="formRow" action="/scan" method="get">
+    <input class="input" name="url" type="text" inputmode="url" placeholder="yourbusiness.com" required aria-label="Your website address">
+    <button class="btn primary" type="submit">Check my website</button>
+  </form>
+  <p class="muted" style="font-size:13px;margin-top:10px">Free. No account needed. We only read publicly available pages.</p>
+</div>
+<div class="heroCard"><span class="chip">Example report</span>
+  <div style="display:flex;gap:18px;align-items:center;margin-top:18px">
+    <div class="score" style="width:88px;height:88px;font-size:26px;border-width:7px">54</div>
+    <div><div class="muted">Agent Ready score</div><b style="font-size:19px">Needs work</b>
+      <div class="muted" style="font-size:13px">9 pages checked</div></div>
+  </div>
+  <div style="margin-top:20px">
+    <div class="finding" style="padding:10px 0"><span class="dot good"></span><div>Can read your prices</div><b></b></div>
+    <div class="finding" style="padding:10px 0"><span class="dot bad"></span><div>Cannot tell what is in stock</div><b></b></div>
+    <div class="finding" style="padding:10px 0"><span class="dot bad"></span><div>Cannot find your returns policy</div><b></b></div>
+  </div>
+</div></section>
 
-export function scanPage(result:ScanResult){const rows=result.findings.map(f=>`<div class="finding"><div class="dot ${f.status}"></div><div><b>${esc(f.title)}</b><div class="muted">${esc(f.detail)}</div>${f.fix?`<div style="margin-top:5px">→ ${esc(f.fix)}</div>`:""}</div><div class="muted">${f.points}/${f.maxPoints}</div></div>`).join("");return layout(`Scan: ${result.domain}`,`<main><div class="wrap section"><a class="muted" href="/">← New scan</a><div class="card" style="margin-top:18px"><div style="display:flex;gap:24px;align-items:center;flex-wrap:wrap"><div class="score">${result.score}</div><div><div class="eyebrow">AI shopping readiness</div><h1 style="margin:5px 0">${esc(result.domain)}</h1><div class="muted">${result.grade} · scanned ${new Date(result.scannedAt).toLocaleString("en-GB")}</div></div></div><div style="margin-top:24px">${rows}</div><div class="formRow"><a class="btn primary" href="/#scanner">Scan another store</a><a class="btn" href="/setup">Connect for attribution</a></div></div></div></main>`);}
+<section class="section"><div class="grid3">
+  <div class="card"><span class="chip">1 &middot; CHECK</span><h3>See what AI can and cannot do</h3>
+    <p class="muted">We read your public pages the way an assistant would and score how well it can understand your business, your products, your policies and how to act.</p></div>
+  <div class="card"><span class="chip">2 &middot; FIX</span><h3>Fix what can safely be fixed</h3>
+    <p class="muted">Connect Shopify and AgentCart applies the safe improvements itself, asks your approval before changing anything customers read, and tells you plainly what only your team can do.</p></div>
+  <div class="card"><span class="chip">3 &middot; PROVE</span><h3>Watch the score rise</h3>
+    <p class="muted">Rescan and see the before and after. AgentCart keeps checking, so you find out if something breaks rather than discovering it months later.</p></div>
+</div></section>
+
+<section class="section"><div class="card">
+  <div class="eyebrow">Also included</div>
+  <h2>See whether AI is actually sending you customers</h2>
+  <p class="muted">Once your Shopify store is connected, AgentCart records visits and orders that arrive from identifiable AI assistants &mdash; ChatGPT, Claude, Gemini, Perplexity, Microsoft Copilot and Meta AI. Where a referral cannot be identified, we say so rather than guessing.</p>
+  <div class="formRow"><a class="btn" href="/dashboard?demo=1">See the demo dashboard</a></div>
+</div></section>
+
+<section id="scanner" class="section"><div class="card">
+  <div class="eyebrow">Free check</div>
+  <h2>Start with your website</h2>
+  <p class="muted">Enter any public business website. You do not need a Shopify store to get a report.</p>
+  <form class="formRow" action="/scan" method="get">
+    <input class="input" name="url" type="text" inputmode="url" placeholder="yourbusiness.com" required aria-label="Your website address">
+    <button class="btn primary" type="submit">Check my website</button>
+  </form>
+</div></section>
+</div></main>`);}
 
 export function dashboardPage(demo:boolean,shop?:string|null,pixelFailed=false){return layout("Dashboard",`<main><div class="wrap">${pixelFailed?`<div class="card" style="margin-top:22px;border-color:var(--warn)"><b>Your store is connected, but the AgentCart pixel did not activate.</b><div class="muted">Attribution will stay empty until it does. Reconnect from the home page to retry, or activate the AgentCart pixel from your Shopify admin under Settings &rarr; Customer events.</div></div>`:""}<div class="dashHead"><div><div class="eyebrow">AI Commerce Radar</div><h1>${demo?"Demo Store":esc(shop||"Your store")}</h1><div class="muted">Identifiable AI commerce · last 30 days</div></div><span class="status">${demo?"DEMO DATA":"LIVE"}</span></div><div id="dashboard"><div class="empty">Loading commerce signals…</div></div></div></main><script>
 const demo=${demo?"true":"false"};
@@ -34,6 +94,10 @@ fetch('/api/dashboard'+(demo?'?demo=1':''),{credentials:'same-origin'}).then(r=>
  document.querySelector('#dashboard').innerHTML='<div style="margin-bottom:14px">'+trust+mixed+'</div><div class="metrics"><div class="metric"><span class="muted">AI visits</span><b>'+num(visits)+delta(visits,prev.visits)+'</b></div><div class="metric"><span class="muted">AI orders</span><b>'+num(orders)+delta(orders,prev.orders)+'</b></div><div class="metric"><span class="muted">AI revenue</span><b>'+money(s.revenue)+delta(s.revenue,prev.revenue)+'</b></div><div class="metric"><span class="muted">Conversion</span><b>'+conv.toFixed(1)+'%</b></div></div><div class="two"><div class="card"><h3>AI sources</h3><table class="table"><thead><tr><th>Source</th><th>Visits</th><th>Orders</th><th>Revenue</th></tr></thead><tbody>'+rows+'</tbody></table></div><div class="card"><h3>Observed funnel</h3><div class="finding"><span class="dot good"></span><div>Page views</div><b>'+num(funnel.page_viewed||0)+'</b></div><div class="finding"><span class="dot good"></span><div>Product views</div><b>'+num(funnel.product_viewed||0)+'</b></div><div class="finding"><span class="dot warn"></span><div>Checkouts started</div><b>'+num(funnel.checkout_started||0)+'</b></div><div class="finding"><span class="dot good"></span><div>Checkouts completed</div><b>'+num(funnel.checkout_completed||0)+'</b></div></div></div><div class="card" style="margin-top:16px"><h3>Top products</h3>'+(products?'<table class="table"><thead><tr><th>Product</th><th>Events</th><th>Revenue</th></tr></thead><tbody>'+products+'</tbody></table>':'<div class="empty">No product activity from identifiable AI referrals yet.</div>')+'</div>';
 }).catch(()=>{document.querySelector('#dashboard').innerHTML='<div class="card empty"><h3>No connected store yet</h3><p>Connect Shopify from the home page or use the demo dashboard.</p><a class="btn primary" href="/">Connect a store</a></div>'});
 </script>`);}
+
+export function agentReadyPage(report:AgentReadyReport,comparison?:{delta:number|null;comparable:boolean;previous:{score:number}|null}|null){
+  return layout(`Agent Ready: ${report.domain}`,reportBody(report,comparison));
+}
 
 export function errorPage(title:string,message:string,ctaHref="/",ctaLabel="Back to AgentCart"){
   return layout(title,`<main><div class="wrap legal"><h1>${esc(title)}</h1><p>${esc(message)}</p><div class="formRow"><a class="btn primary" href="${esc(ctaHref)}">${esc(ctaLabel)}</a></div></div></main>`);

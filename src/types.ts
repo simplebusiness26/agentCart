@@ -7,27 +7,6 @@ export interface Env {
   TOKEN_ENCRYPTION_KEY: string;
 }
 
-export type FindingStatus = "good" | "warn" | "bad";
-
-export interface Finding {
-  key: string;
-  title: string;
-  status: FindingStatus;
-  points: number;
-  maxPoints: number;
-  detail: string;
-  fix?: string;
-}
-
-export interface ScanResult {
-  url: string;
-  domain: string;
-  score: number;
-  grade: "Excellent" | "Good" | "Needs work" | "Poor";
-  findings: Finding[];
-  scannedAt: string;
-}
-
 export interface PixelEventPayload {
   shop: string;
   eventId: string;
