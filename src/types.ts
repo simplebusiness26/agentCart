@@ -2,31 +2,9 @@ export interface Env {
   DB: D1Database;
   APP_URL: string;
   SHOPIFY_API_VERSION: string;
-  DEMO_MODE: string;
   SHOPIFY_API_KEY: string;
   SHOPIFY_API_SECRET: string;
   TOKEN_ENCRYPTION_KEY: string;
-}
-
-export type FindingStatus = "good" | "warn" | "bad";
-
-export interface Finding {
-  key: string;
-  title: string;
-  status: FindingStatus;
-  points: number;
-  maxPoints: number;
-  detail: string;
-  fix?: string;
-}
-
-export interface ScanResult {
-  url: string;
-  domain: string;
-  score: number;
-  grade: "Excellent" | "Good" | "Needs work" | "Poor";
-  findings: Finding[];
-  scannedAt: string;
 }
 
 export interface PixelEventPayload {
@@ -43,4 +21,18 @@ export interface PixelEventPayload {
   amount?: number;
   currency?: string;
   raw?: unknown;
+}
+
+export interface WebhookBody {
+  shop_domain?: string;
+  id?: string|number;
+  admin_graphql_api_id?: string;
+  current_total_price?: string|number;
+  total_price?: string|number;
+  currency?: string;
+  processed_at?: string;
+  created_at?: string;
+  customer?: { id?: string|number; email?: string };
+  orders_requested?: Array<string|number>;
+  orders_to_redact?: Array<string|number>;
 }

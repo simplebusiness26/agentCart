@@ -20,6 +20,14 @@ validations = [
   { name = "min", value = "8" }
 ]
 
+[settings.fields.token]
+name = "Ingest token"
+description = "Per-shop token identifying this pixel to AgentCart"
+type = "single_line_text_field"
+validations = [
+  { name = "min", value = "8" }
+]
+
 [settings.fields.shop]
 name = "Shop domain"
 description = "Canonical *.myshopify.com domain"

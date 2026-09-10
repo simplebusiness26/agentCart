@@ -1,5 +1,8 @@
 import type { Env } from "./types";
 
+// Least privilege: add a scope only when a shipped feature needs it. `read_orders` is
+// deliberately absent -- it is Protected Customer Data and requires an approved Shopify
+// questionnaire. See docs/USER_ACTIONS.md before enabling it.
 const scopes=["read_products","write_pixels","read_customer_events"];
 const encoder=new TextEncoder();
 
@@ -13,6 +16,7 @@ async function hmacBytes(secret:string,message:string){
 function hex(bytes:Uint8Array){return Array.from(bytes,b=>b.toString(16).padStart(2,"0")).join("");}
 function b64(bytes:Uint8Array){let s="";for(const b of bytes)s+=String.fromCharCode(b);return btoa(s);}
 function fromB64(value:string){const s=atob(value);return Uint8Array.from(s,c=>c.charCodeAt(0));}
+export function safeCompare(a:string,b:string){return safeEqual(a,b);}
 function safeEqual(a:string,b:string){if(a.length!==b.length)return false;let x=0;for(let i=0;i<a.length;i++)x|=a.charCodeAt(i)^b.charCodeAt(i);return x===0;}
 
 export function installUrl(env:Env,shop:string,state:string){
@@ -25,7 +29,7 @@ export async function verifyOAuthHmac(url:URL,secret:string){
   const given=url.searchParams.get("hmac")||"";
   const params:Array<[string,string]>=[];
   url.searchParams.forEach((value,key)=>{if(key!=="hmac"&&key!=="signature")params.push([key,value]);});
-  params.sort(([a],[b])=>a.localeCompare(b));
+  params.sort(([a],[b])=>a<b?-1:a>b?1:0);
   const message=params.map(([key,value])=>`${key}=${value}`).join("&");
   return safeEqual(given,hex(await hmacBytes(secret,message)));
 }
@@ -53,9 +57,37 @@ export async function decryptToken(value:string,secret:string){
   return new TextDecoder().decode(out);
 }
 
-export async function createWebPixel(env:Env,shop:string,accessToken:string){
+export function pixelSettings(env:Env,shop:string,token:string){
+  return {endpoint:`${env.APP_URL}/api/events`,shop,token};
+}
+
+// Shopify rejects webPixelCreate when the app already has a pixel on the shop, which
+// happens on every reinstall. Updating instead also lets a changed APP_URL or rotated
+// ingest token propagate. This is the production caller for decryptToken.
+export async function webPixelUpdate(env:Env,shop:string,accessToken:string,pixelId:string,settings:Record<string,string>){
+  const query=`mutation Pixel($id: ID!, $webPixel: WebPixelInput!){webPixelUpdate(id:$id,webPixel:$webPixel){webPixel{id} userErrors{field message code}}}`;
+  const res=await fetch(`https://${shop}/admin/api/${env.SHOPIFY_API_VERSION}/graphql.json`,{method:"POST",headers:{"content-type":"application/json","x-shopify-access-token":accessToken},body:JSON.stringify({query,variables:{id:pixelId,webPixel:{settings}}})});
+  if(!res.ok)throw new Error(`Could not update AgentCart pixel (${res.status}).`);
+  const json=await res.json<any>();
+  const result=json?.data?.webPixelUpdate;
+  if(result?.userErrors?.length)throw new Error(result.userErrors.map((e:any)=>e.message).join("; "));
+  return result?.webPixel?.id as string|undefined;
+}
+
+// The pixel reports checkout.order.id; the orders webhook reports a numeric id and a
+// gid:// global id. Reduce both to the trailing digits so the two can be joined. Kept
+// deliberately tolerant: the real pixel format cannot be confirmed without a live store,
+// and a tolerant normalizer degrades to a missed join rather than to silent zero revenue.
+export function normalizeOrderId(value:unknown){
+  const raw=String(value??"").trim();
+  if(!raw)return "";
+  const digits=raw.match(/(\d+)\s*$/);
+  return digits?digits[1]:raw.toLowerCase();
+}
+
+export async function createWebPixel(env:Env,shop:string,accessToken:string,settings?:Record<string,string>){
   const query=`mutation Pixel($webPixel: WebPixelInput!){webPixelCreate(webPixel:$webPixel){webPixel{id settings} userErrors{field message code}}}`;
-  const variables={webPixel:{settings:{endpoint:`${env.APP_URL}/api/events`,shop}}};
+  const variables={webPixel:{settings:settings??{endpoint:`${env.APP_URL}/api/events`,shop}}};
   const res=await fetch(`https://${shop}/admin/api/${env.SHOPIFY_API_VERSION}/graphql.json`,{method:"POST",headers:{"content-type":"application/json","x-shopify-access-token":accessToken},body:JSON.stringify({query,variables})});
   if(!res.ok)throw new Error(`Could not activate AgentCart pixel (${res.status}).`);
   const json=await res.json<any>();
@@ -64,14 +96,28 @@ export async function createWebPixel(env:Env,shop:string,accessToken:string){
   return result?.webPixel?.id as string|undefined;
 }
 
-export async function sessionCookie(secret:string,shop:string){
-  const sig=hex(await hmacBytes(secret,shop));
-  return `agentcart_session=${encodeURIComponent(`${shop}.${sig}`)}; Path=/; HttpOnly; Secure; SameSite=Lax; Max-Age=2592000`;
+export const SESSION_MAX_AGE_MS=2592000000;
+
+// The signed payload carries an issued-at so the lifetime is enforced server-side.
+// The previous form was HMAC(secret, shop) alone: a constant that stayed valid forever
+// regardless of Max-Age, because nothing in it could expire.
+export async function sessionCookie(secret:string,shop:string,issuedAt=Date.now()){
+  const sig=hex(await hmacBytes(secret,`${shop}.${issuedAt}`));
+  return `agentcart_session=${encodeURIComponent(`${shop}.${issuedAt}.${sig}`)}; Path=/; HttpOnly; Secure; SameSite=Lax; Max-Age=${Math.floor(SESSION_MAX_AGE_MS/1000)}`;
 }
-export async function shopFromCookie(secret:string,cookie:string|null){
+
+export async function parseSession(secret:string,cookie:string|null,nowMs=Date.now()){
   const match=(cookie||"").match(/(?:^|;\s*)agentcart_session=([^;]+)/);if(!match)return null;
-  const value=decodeURIComponent(match[1]);const cut=value.lastIndexOf(".");if(cut<1)return null;
-  const shop=value.slice(0,cut),sig=value.slice(cut+1);return safeEqual(sig,hex(await hmacBytes(secret,shop)))?shop:null;
+  const value=decodeURIComponent(match[1]);
+  const sigCut=value.lastIndexOf(".");if(sigCut<1)return null;
+  const signed=value.slice(0,sigCut),sig=value.slice(sigCut+1);
+  const issuedCut=signed.lastIndexOf(".");if(issuedCut<1)return null;
+  const shop=signed.slice(0,issuedCut),issuedAt=Number(signed.slice(issuedCut+1));
+  if(!shop||!Number.isFinite(issuedAt)||issuedAt<=0)return null;
+  if(!safeEqual(sig,hex(await hmacBytes(secret,signed))))return null;
+  if(issuedAt+SESSION_MAX_AGE_MS<=nowMs)return null;
+  if(issuedAt>nowMs+300000)return null;
+  return {shop,issuedAt};
 }
 
 export async function verifyWebhookHmac(secret:string,raw:string,header:string|null){

@@ -49,7 +49,6 @@ Example:
 [vars]
 APP_URL = "https://agentcart.example.workers.dev"
 SHOPIFY_API_VERSION = "2026-07"
-DEMO_MODE = "true"
 ```
 
 ## 4. Create the Shopify app
@@ -166,7 +165,28 @@ npm run typecheck
 npm test
 ```
 
-GitHub Actions also runs these checks on pushes and pull requests once the workflow is enabled.
+GitHub Actions runs these checks on pushes to `main` and on every pull request.
+
+### First things to check against real infrastructure
+
+The test suite runs D1 queries against `node:sqlite`, which shares SQLite semantics but is not
+workerd. Two assumptions are worth confirming immediately after the first remote migration:
+
+- `INSERT ... ON CONFLICT ... RETURNING` behaves as expected (used by the rate limiter).
+- `DB.batch()` is atomic on the hosted service (used when saving scan runs and catalogues).
+
+Also confirm, on the first real store:
+
+- `SELECT DISTINCT json_extract(payload_json,'$.origin') FROM events` — this reveals the real
+  `Origin` the Web Pixel sends, which is currently recorded but not enforced. Enforce it from
+  evidence, not from a guess.
+- `SELECT COUNT(*) FROM events WHERE occurred_ms IS NULL` — should be zero, which confirms the
+  pixel timestamp format parses.
+- Whether `checkout.order.id` from the pixel matches the order id format the `orders/paid` webhook
+  sends, if verified revenue is enabled. `normalizeOrderId` is deliberately tolerant, but the join
+  should be confirmed rather than assumed.
+- That OAuth HMAC verifies against Shopify's real parameter set. The algorithm is unit tested with a
+  synthetic secret; only the parameters Shopify actually sends are unverified.
 
 ## 11. Before a public Shopify App Store submission
 
