@@ -167,6 +167,9 @@ npm test
 
 GitHub Actions runs these checks on pushes to `main` and on every pull request.
 
+**These prove the logic, not the system.** A green suite and green CI never make AgentCart launch
+ready — see §10a. Treat the checks below as the real verification.
+
 ### First things to check against real infrastructure
 
 The test suite runs D1 queries against `node:sqlite`, which shares SQLite semantics but is not
@@ -187,6 +190,60 @@ Also confirm, on the first real store:
   should be confirmed rather than assumed.
 - That OAuth HMAC verifies against Shopify's real parameter set. The algorithm is unit tested with a
   synthetic secret; only the parameters Shopify actually sends are unverified.
+- Whether your Shopify storefront itself publishes `/.well-known/ucp`. AgentCart reports this as
+  `unknown` and asserts in a test that it makes no claim either way. Confirm it by fetching the path
+  on the live storefront. (This is separate from the manifest AgentCart serves for the business at
+  `/api/ai/<slug>/ucp`, which does exist.)
+
+## 10a. Run the launch gate
+
+The launch gate is the authoritative answer to whether AgentCart is ready to launch. It is eighteen
+checks, each recorded with evidence and a timestamp, and `readyForLaunch` is true only when every one
+of them has a recorded pass against real infrastructure.
+
+```
+GET  /api/launch             the gate's current state
+GET  /api/launch/checklist   the checklist, including what only you can do
+POST /api/launch/run         run the gate (rate limited)
+```
+
+All of it is on the **Launch** tab of `/dashboard`.
+
+Each check declares `whyNotMockable` — the real dependency it needs. That field exists to stop a
+future change from satisfying a check with a fixture. A check that a mock can pass is not doing its
+job, so make the infrastructure work rather than relaxing the check.
+
+## 10b. New endpoints added in Phases 10-12
+
+```
+GET  /api/providers          per provider: can it discover you, fetch you, is it available to you
+POST /api/providers/channel  record detected agentic-commerce channel capabilities
+GET  /api/protocols          web / UCP / ACP support, and what is explicitly not supported
+GET  /api/attribution        orders and revenue by evidence tier (never summed)
+POST /api/journey            start a signed agent journey
+POST /api/journey/verify     verify a returned journey id
+GET  /api/health/connection  connection health and recent operations
+GET  /api/outcome            the five-layer outcome view
+GET  /api/launch*            the launch gate (see §10a)
+
+Public, read-only, no session required:
+POST /api/mcp                scan_site, get_agent_standards, get_public_ai_profile,
+                             get_supported_protocols
+GET  /agents.md              the same surface for assistants that read instead of calling tools
+GET  /.well-known/agents.md
+
+Per connected business, on AgentCart's hosted AI layer:
+GET  /api/ai/<slug>/ucp      the UCP manifest (discovery and read only)
+GET  /api/ai/<slug>/agents.md
+```
+
+The UCP manifest is served by AgentCart for a business it hosts. It is **not** the same thing as the
+merchant's own storefront publishing `/.well-known/ucp` — whether Shopify does that is unverified,
+and AgentCart reports it as `unknown`.
+
+The public MCP surface is rate limited and structurally cannot reach an authenticated path. It has no
+`get_scan_result`, because the scan is synchronous and advertising a background job that does not
+exist would leave an agent polling forever.
 
 ## 11. Before a public Shopify App Store submission
 
