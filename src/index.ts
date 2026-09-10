@@ -16,6 +16,7 @@ import { saveJourney, verifyJourney } from "./agentic/journey";
 import { launchStatus, missingPrerequisites } from "./launch/gate";
 import { buildUcpManifest, protocolSupport } from "./protocol";
 import { runLaunchGate } from "./launch/runner";
+import { buildChecklist } from "./launch/checklist";
 import { consumeOAuthState, countCustomerEvents, deleteShop, getDashboardWindows, getShop, insertEvent, logComplianceRequest, putOAuthState, rateLimit, redactCustomer, saveOrder, saveShop, setIngestToken, updatePixelId } from "./db";
 import { createWebPixel, encryptToken, exchangeCode, installUrl, normalizeOrderId, pixelSettings, randomState, parseSession, safeCompare, sessionCookie, validShop, verifyOAuthHmac, verifyWebhookHmac, webPixelUpdate } from "./shopify";
 import { agentReadyPage, aiProfilePage, dashboardPage, errorPage, homePage, privacyPage, setupPage, termsPage } from "./ui";
@@ -421,6 +422,11 @@ async function route(request:Request,env:Env):Promise<Response>{
     const status=await launchStatus(env,url.searchParams.get("environment")||"production");
     return json({...status,missingPrerequisites:missingPrerequisites(env),
       hardRule:"A green test suite and green CI never make AgentCart launch ready. Every check below must pass against real infrastructure."});
+  }
+
+  if(request.method==="GET"&&path==="/api/launch/checklist"){
+    const shop=await sessionShop(request,env);
+    return json(await buildChecklist(env,shop||undefined));
   }
 
   if(request.method==="POST"&&path==="/api/launch/run"){

@@ -166,3 +166,49 @@ describe('launch routes',()=>{
     expect((await authed('/api/launch/run','POST',{})).status).toBe(429);
   });
 });
+
+describe('the authoritative launch checklist',()=>{
+  it('says not ready, and says why, before anything is set up',async()=>{
+    const {buildChecklist}=await import('../src/launch/checklist');
+    const f=fakeEnv({SHOPIFY_API_KEY:'',APP_URL:'http://localhost:8787'});
+    const c=await buildChecklist(f.env);
+    expect(c.readyForLaunch).toBe(false);
+    expect(c.headline).toContain('not launch ready');
+    expect(c.ownerActions.length).toBeGreaterThan(2);
+  });
+
+  it('states the hard rule',async()=>{
+    const {buildChecklist,HARD_RULE}=await import('../src/launch/checklist');
+    expect((await buildChecklist(env)).hardRule).toBe(HARD_RULE);
+    expect(HARD_RULE).toContain('never make AgentCart launch ready');
+  });
+
+  it('marks the code as done but does not let that alone imply readiness',async()=>{
+    const {buildChecklist}=await import('../src/launch/checklist');
+    const c=await buildChecklist(env,SHOP);
+    expect(c.items.find(i=>i.key==='code')!.state).toBe('done');
+    expect(c.items.find(i=>i.key==='code')!.detail).toContain('not sufficient');
+    expect(c.readyForLaunch).toBe(false);
+  });
+
+  it('separates what AgentCart owns from what the owner must do',async()=>{
+    const {buildChecklist}=await import('../src/launch/checklist');
+    const c=await buildChecklist(env,SHOP);
+    expect(c.items.some(i=>i.owner==='agentcart')).toBe(true);
+    expect(c.items.filter(i=>i.owner==='you').length).toBeGreaterThan(3);
+  });
+
+  it('only becomes ready once the gate itself passes',async()=>{
+    const {buildChecklist}=await import('../src/launch/checklist');
+    await recordLaunchResults(env,'r1','production','v1',
+      LAUNCH_CHECKS.map(c=>({key:c.key,status:'pass' as const,evidence:'ok'})));
+    const c=await buildChecklist(env,SHOP);
+    expect(c.items.find(i=>i.key==='gate')!.state).toBe('done');
+  });
+
+  it('is served over a route',async()=>{
+    const body:any=await (await authed('/api/launch/checklist')).json();
+    expect(body.items.length).toBeGreaterThan(5);
+    expect(body.readyForLaunch).toBe(false);
+  });
+});
