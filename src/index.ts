@@ -4,6 +4,7 @@ import { getFindings, getScanComparison, getScanHistory, recordFailedScan, saveS
 import { ShopifyScopeError, getBusinessProfile, getLastSync, syncConnectedStore } from "./platform";
 import { buildProfile, ensureProfile, getActions, getCatalogView, getItemView, getPolicies, getProfileMeta, resolveSlug, searchCatalogView, setProfileActive } from "./ailayer/service";
 import { handleMcp } from "./ailayer/mcp";
+import { buildAgentsMd } from "./ailayer/agentsmd";
 import { ApprovalRequiredError, applyAllAutomatic, applyFix, approveFix, listFixes, proposeFixes } from "./fixes";
 import { linkShopToBusiness, monitoringHistory, runMonitorPass } from "./monitor";
 import { classifyOrderSource, getJourney, recordOrderSource, revenueByTier, agenticOrders, startJourney, verifyJourneyId } from "./attribution";
@@ -457,6 +458,17 @@ async function route(request:Request,env:Env):Promise<Response>{
     if(request.method!=="GET")return json({error:"Method not allowed"},405);
     const gate=await rateLimit(env,"ai",slug,240,60000).catch(()=>({ok:true,retryAfter:0}));
     if(!gate.ok)return json({error:"Rate limit exceeded"},429,{"retry-after":String(gate.retryAfter)});
+
+    // Hosted agents.md, generated from the same service layer as the JSON endpoints.
+    if(segments[0]==="agents.md"||segments[0]==="agents"){
+      const md=await buildAgentsMd(env,shop,slug,env.APP_URL);
+      if(!md)return json({error:"This business has no synced profile yet."},404);
+      const meta=await getProfileMeta(env,shop);
+      const etag=`W/"${slug}-${meta?.version??1}-${meta?.last_generated_ms??0}-agents"`;
+      if(request.headers.get("if-none-match")===etag)return new Response(null,{status:304,headers:{etag}});
+      return new Response(md,{status:200,headers:{"content-type":"text/markdown; charset=utf-8",
+        etag,"cache-control":"public, max-age=300","access-control-allow-origin":"*"}});
+    }
 
     const section=segments[0]||"profile";
     let payload:unknown=null;
