@@ -158,6 +158,33 @@ describe('outcome view',()=>{
     expect(o.northStar.note).toContain('browser can be made to say anything');
   });
 
+  it('surfaces the capabilities and recoverable points stored with the latest scan',async()=>{
+    const caps={canUnderstand:['What you sell'],cannotUnderstand:['Your returns policy'],
+      canDo:['Read your prices'],cannotDo:['Start a checkout']};
+    sqlite.prepare("insert into businesses(id,domain) values('b1','shop.example')").run();
+    sqlite.prepare(`insert into scan_runs(id,business_id,domain,score,grade,scoring_version,status,started_ms,capabilities_json)
+      values('r1','b1','shop.example',61,'C','2.0.0','complete',1000,?)`).run(JSON.stringify(caps));
+    const finding=(key:string,status:string,gain:number)=>sqlite.prepare(`insert into scan_findings
+      (scan_run_id,key,category,status,points,max_points,plain_title,why_it_matters,estimated_score_gain)
+      values('r1',?,'catalog',?,0,5,?,'because',?)`).run(key,status,'Check '+key,gain);
+    finding('a','fail',7); finding('b','warn',4);
+    // A check that does not apply to this business is not points the merchant is failing to collect.
+    finding('c','na',9);
+
+    const o=await buildOutcome(env,SHOP,'shop.example');
+    expect(o.readiness.score).toBe(61);
+    expect(o.readiness.canUnderstand).toEqual(['What you sell']);
+    expect(o.readiness.cannotDo).toEqual(['Start a checkout']);
+    expect(o.readiness.pointsRecoverable).toBe(11);
+  });
+
+  it('reports readiness as unknown rather than zero when no scan exists',async()=>{
+    const o=await buildOutcome(env,SHOP,'never-scanned.example');
+    expect(o.readiness.score).toBeNull();
+    expect(o.readiness.pointsRecoverable).toBeNull();
+    expect(o.readiness.canUnderstand).toEqual([]);
+  });
+
   it('names the north star as customers and verified revenue, not the score',async()=>{
     const o=await buildOutcome(env,SHOP,null);
     expect(o.northStar.label).toContain('verified AI-attributed revenue');

@@ -66,7 +66,7 @@ export async function getLatestScan(env:Env,domain:string){
 // Two most recent complete runs, so the UI can show "54 -> 82 (+28)" honestly. Returns
 // previous=null on a first scan rather than pretending the delta is zero.
 export async function getScanComparison(env:Env,domain:string){
-  const rows=await env.DB.prepare(`SELECT id,score,grade,scoring_version,started_ms FROM scan_runs
+  const rows=await env.DB.prepare(`SELECT id,score,grade,scoring_version,started_ms,capabilities_json FROM scan_runs
     WHERE domain=? AND status='complete' ORDER BY started_ms DESC LIMIT 2`).bind(domain).all();
   const [latest,previous]=rows.results as Array<any>;
   if(!latest)return null;

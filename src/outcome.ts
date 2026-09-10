@@ -39,6 +39,17 @@ export async function buildOutcome(env:Env,shop:string,domain:string|null,nowMs=
   const comparison=domain?await getScanComparison(env,domain).catch(()=>null):null;
   const latest=comparison?.latest as any;
 
+  // Capabilities are stored with the run; points recoverable is the sum of the actionable gains on
+  // that same run. "na" checks are excluded, matching the scorer -- a check that does not apply to
+  // this business is not score the merchant is failing to collect.
+  const caps=(()=>{
+    try{return JSON.parse(String(latest?.capabilities_json||"{}"));}catch{return {};}
+  })() as Partial<{canUnderstand:string[];cannotUnderstand:string[];canDo:string[];cannotDo:string[]}>;
+  const strings=(v:unknown)=>Array.isArray(v)?v.filter(x=>typeof x==="string"):[];
+  const recoverable=latest?await env.DB
+    .prepare("SELECT SUM(estimated_score_gain) AS gain FROM scan_findings WHERE scan_run_id=? AND status<>'na'")
+    .bind(String(latest.id)).first<{gain:number|null}>().catch(()=>null):null;
+
   const verified=tiers.find(t=>t.tier==="verified")?.revenue||0;
   const reported=tiers.find(t=>t.tier==="reported")?.revenue||0;
   const unknown=tiers.find(t=>t.tier==="unknown")?.revenue||0;
@@ -49,9 +60,9 @@ export async function buildOutcome(env:Env,shop:string,domain:string|null,nowMs=
       grade:latest?String(latest.grade):null,
       delta:comparison?.delta??null,
       comparable:!!comparison?.comparable,
-      // Populated from the stored capabilities on the latest run.
-      canUnderstand:[],cannotUnderstand:[],canDo:[],cannotDo:[],
-      pointsRecoverable:null},
+      canUnderstand:strings(caps.canUnderstand),cannotUnderstand:strings(caps.cannotUnderstand),
+      canDo:strings(caps.canDo),cannotDo:strings(caps.cannotDo),
+      pointsRecoverable:recoverable?Math.round(Number(recoverable.gain||0)):null},
     standards:{note:"Agent Standards are reported on their own tab and are not folded into the readiness score."},
     visibility:{status:visibility.status,summary:visibility.summary,caveat:visibility.caveat},
     customers:{
