@@ -4,7 +4,9 @@ import {assessChannel,getChannelCapabilities,saveChannelCapabilities} from '../s
 import {saveBusinessProfile,saveCatalog} from '../src/platform';
 import {normalizeProduct} from '../src/platform/shopify';
 import {saveShop} from '../src/db';
-import {fakeEnv} from './helpers/env';
+import {TEST_SECRET,fakeEnv} from './helpers/env';
+import worker from '../src/index';
+import {sessionCookie} from '../src/shopify';
 import * as S from './fixtures/shopify';
 import type {Env} from '../src/types';
 
@@ -152,5 +154,45 @@ describe('Shopify agentic channel readiness',()=>{
     expect(stored.length).toBe(caps.length);
     await saveChannelCapabilities(env,SHOP,caps);
     expect((await getChannelCapabilities(env,SHOP)).length).toBe(caps.length);
+  });
+});
+
+describe('provider compatibility routes',()=>{
+  const authed=async(path:string,method='GET')=>{
+    const cookie=(await sessionCookie(TEST_SECRET,SHOP,Date.now())).split(';')[0];
+    return worker.fetch(new Request(`https://agentcart.example${path}`,{method,headers:{cookie}}),env);
+  };
+
+  it('require a session',async()=>{
+    for(const [p,m] of [['/api/providers','GET'],['/api/providers/channel','POST'],['/api/journey/verify','POST']] as const)
+      expect((await worker.fetch(new Request(`https://agentcart.example${p}`,{method:m}),env)).status,p).toBe(401);
+  });
+
+  it('report every provider with region and verification date',async()=>{
+    await saveBusinessProfile(env,SHOP,{name:'S',description:'',contactEmail:'',contactPhone:'',
+      address:{country:'GB'},currency:'GBP',primaryUrl:'https://s.example',policies:[]},1000);
+    vi.stubGlobal('fetch',vi.fn(async()=>new Response('User-agent: *\nAllow: /',{status:200})));
+    const body:any=await (await authed('/api/providers')).json();
+    expect(body.providers.length).toBeGreaterThan(3);
+    expect(body.registryVerifiedOn).toMatch(/^\d{4}-\d{2}-\d{2}$/);
+    const meta=body.providers.find((p:any)=>p.provider==='meta');
+    expect(meta.region).toBe('not_available_in_region');
+    expect(body.note).toContain('never reduces your score');
+  });
+
+  it('degrade to unknown when robots.txt cannot be fetched',async()=>{
+    await saveBusinessProfile(env,SHOP,{name:'S',description:'',contactEmail:'',contactPhone:'',
+      address:{},currency:'GBP',primaryUrl:'https://s.example',policies:[]},1000);
+    vi.stubGlobal('fetch',vi.fn(async()=>{throw new Error('down');}));
+    const body:any=await (await authed('/api/providers')).json();
+    expect(body.providers.every((p:any)=>p.discovery==='unknown')).toBe(true);
+  });
+
+  it('rate limit the channel check',async()=>{
+    await saveBusinessProfile(env,SHOP,{name:'S',description:'',contactEmail:'',contactPhone:'',
+      address:{},currency:'GBP',primaryUrl:'https://s.example',policies:[]},1000);
+    mockAdmin(withChannel(['Online Store']));
+    for(let i=0;i<6;i++)await authed('/api/providers/channel','POST');
+    expect((await authed('/api/providers/channel','POST')).status).toBe(429);
   });
 });

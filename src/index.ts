@@ -5,9 +5,13 @@ import { ShopifyScopeError, getBusinessProfile, getLastSync, syncConnectedStore 
 import { buildProfile, ensureProfile, getActions, getCatalogView, getItemView, getPolicies, getProfileMeta, resolveSlug, searchCatalogView, setProfileActive } from "./ailayer/service";
 import { handleMcp } from "./ailayer/mcp";
 import { buildAgentsMd } from "./ailayer/agentsmd";
-import { ApprovalRequiredError, applyAllAutomatic, applyFix, approveFix, listFixes, proposeFixes } from "./fixes";
+import { ApprovalRequiredError, applyAllAutomatic, applyFix, approveFix, contextFor, listFixes, proposeFixes } from "./fixes";
 import { linkShopToBusiness, monitoringHistory, runMonitorPass } from "./monitor";
 import { classifyOrderSource, getJourney, recordOrderSource, revenueByTier, agenticOrders, startJourney, verifyJourneyId } from "./attribution";
+import { REGISTRY_VERIFIED_ON, providerById, regionAvailability } from "./providers/registry";
+import { providerAccess } from "./providers/robots";
+import { assessChannel, getChannelCapabilities, saveChannelCapabilities } from "./agentic/channel";
+import { saveJourney, verifyJourney } from "./agentic/journey";
 import { consumeOAuthState, countCustomerEvents, deleteShop, getDashboardWindows, getShop, insertEvent, logComplianceRequest, putOAuthState, rateLimit, redactCustomer, saveOrder, saveShop, setIngestToken, updatePixelId } from "./db";
 import { createWebPixel, encryptToken, exchangeCode, installUrl, normalizeOrderId, pixelSettings, randomState, parseSession, safeCompare, sessionCookie, validShop, verifyOAuthHmac, verifyWebhookHmac, webPixelUpdate } from "./shopify";
 import { agentReadyPage, aiProfilePage, dashboardPage, errorPage, homePage, privacyPage, setupPage, termsPage } from "./ui";
@@ -322,6 +326,73 @@ async function route(request:Request,env:Env):Promise<Response>{
     return json({tiers:await revenueByTier(env,shop,from,now),
       agents:await agenticOrders(env,shop,from,now),
       note:"Evidence tiers are reported separately and never summed. Verified revenue comes from cryptographically verified platform order records; reported revenue comes from the storefront pixel."});
+  }
+
+  // Provider compatibility: one place a merchant sees, per AI provider, whether it can discover
+  // them, reach them, and act. Assembled from the registry, robots evidence and channel state.
+  if(request.method==="GET"&&path==="/api/providers"){
+    const shop=await sessionShop(request,env);
+    if(!shop)return json({error:"No connected Shopify session."},401);
+    const profile=await getBusinessProfile(env,shop);
+    let robots:string|undefined;
+    const site=String(profile?.primary_url||"");
+    if(site){
+      try{
+        const res=await fetch(new URL("/robots.txt",site).toString(),
+          {headers:{"User-Agent":"AgentCartReadinessScanner/2.0"}});
+        if(res.ok)robots=(await res.text()).slice(0,50_000);
+      }catch{/* unreachable robots.txt is reported as unknown, not as a failure */}
+    }
+    const country=(()=>{try{return JSON.parse(String(profile?.address_json||"{}")).country;}catch{return undefined;}})();
+    const access=providerAccess(robots);
+    return json({
+      providers:access.map(a=>{
+        const definition=providerById(a.provider)!;
+        return {...a,
+          region:regionAvailability(definition,typeof country==="string"?country.slice(0,2):undefined),
+          verifiedOn:definition.verifiedOn,
+          protocols:definition.protocols};
+      }),
+      channel:await getChannelCapabilities(env,shop),
+      registryVerifiedOn:REGISTRY_VERIFIED_ON,
+      note:"Blocking an AI training crawler is a legitimate choice and never reduces your score. Where a provider documents that its agent may fetch a page regardless of robots.txt, AgentCart reports your setting as a stated preference rather than claiming the agent is blocked."
+    });
+  }
+
+  if(request.method==="POST"&&path==="/api/providers/channel"){
+    const shop=await sessionShop(request,env);
+    if(!shop)return json({error:"No connected Shopify session."},401);
+    const gate=await rateLimit(env,"channel",shop,6,300000).catch(()=>({ok:true,retryAfter:0}));
+    if(!gate.ok)return json({error:"Checked very recently. Try again shortly."},429,{"retry-after":String(gate.retryAfter)});
+    try{
+      const ctx=await contextFor(env,shop);
+      const profile=await getBusinessProfile(env,shop);
+      const country=(()=>{try{return JSON.parse(String(profile?.address_json||"{}")).country;}catch{return undefined;}})();
+      const caps=await assessChannel(env,shop,ctx.token,typeof country==="string"?country.slice(0,2):undefined);
+      await saveChannelCapabilities(env,shop,caps);
+      return json({capabilities:caps});
+    }catch(e){
+      if(e instanceof ShopifyScopeError)return json({error:e.message,needsReauthorization:true},403);
+      return json({error:e instanceof Error?e.message:"Could not check channel readiness."},502);
+    }
+  }
+
+  if(request.method==="POST"&&path==="/api/journey/verify"){
+    const shop=await sessionShop(request,env);
+    if(!shop)return json({error:"No connected Shopify session."},401);
+    const gate=await rateLimit(env,"verify",shop,10,300000).catch(()=>({ok:true,retryAfter:0}));
+    if(!gate.ok)return json({error:"Verified very recently. Try again shortly."},429,{"retry-after":String(gate.retryAfter)});
+    const body=await request.json<{url?:string;intent?:string}>().catch(()=>({} as any));
+    const intent=(["buy_product","find_policy","contact_business","book_appointment"] as const)
+      .find(i=>i===body.intent)||"buy_product";
+    const profile=await getBusinessProfile(env,shop);
+    const target=String(body.url||profile?.primary_url||"");
+    if(!target)return json({error:"No website is known for this store."},400);
+    try{
+      const result=await verifyJourney(target,intent);
+      await saveJourney(env,shop,result).catch(()=>{});
+      return json(result);
+    }catch(e){return json({error:e instanceof Error?e.message:"Verification failed."},400);}
   }
 
   if(request.method==="GET"&&path==="/api/dashboard"){
