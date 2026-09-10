@@ -12,6 +12,8 @@ import { REGISTRY_VERIFIED_ON, providerById, regionAvailability } from "./provid
 import { providerAccess } from "./providers/robots";
 import { assessChannel, getChannelCapabilities, saveChannelCapabilities } from "./agentic/channel";
 import { saveJourney, verifyJourney } from "./agentic/journey";
+import { launchStatus, missingPrerequisites } from "./launch/gate";
+import { runLaunchGate } from "./launch/runner";
 import { consumeOAuthState, countCustomerEvents, deleteShop, getDashboardWindows, getShop, insertEvent, logComplianceRequest, putOAuthState, rateLimit, redactCustomer, saveOrder, saveShop, setIngestToken, updatePixelId } from "./db";
 import { createWebPixel, encryptToken, exchangeCode, installUrl, normalizeOrderId, pixelSettings, randomState, parseSession, safeCompare, sessionCookie, validShop, verifyOAuthHmac, verifyWebhookHmac, webPixelUpdate } from "./shopify";
 import { agentReadyPage, aiProfilePage, dashboardPage, errorPage, homePage, privacyPage, setupPage, termsPage } from "./ui";
@@ -393,6 +395,26 @@ async function route(request:Request,env:Env):Promise<Response>{
       await saveJourney(env,shop,result).catch(()=>{});
       return json(result);
     }catch(e){return json({error:e instanceof Error?e.message:"Verification failed."},400);}
+  }
+
+  // Launch gate. Deliberately authenticated and deliberately not runnable from a test suite:
+  // Phase 11.2's rule is that green unit tests never make the MVP launch ready.
+  if(request.method==="GET"&&path==="/api/launch"){
+    const shop=await sessionShop(request,env);
+    if(!shop)return json({error:"No connected Shopify session."},401);
+    const status=await launchStatus(env,url.searchParams.get("environment")||"production");
+    return json({...status,missingPrerequisites:missingPrerequisites(env),
+      hardRule:"A green test suite and green CI never make AgentCart launch ready. Every check below must pass against real infrastructure."});
+  }
+
+  if(request.method==="POST"&&path==="/api/launch/run"){
+    const shop=await sessionShop(request,env);
+    if(!shop)return json({error:"No connected Shopify session."},401);
+    const gate=await rateLimit(env,"launch",shop,4,600000).catch(()=>({ok:true,retryAfter:0}));
+    if(!gate.ok)return json({error:"The launch gate was run very recently."},429,{"retry-after":String(gate.retryAfter)});
+    const body=await request.json<{environment?:string;appVersion?:string}>().catch(()=>({} as any));
+    const out=await runLaunchGate(env,{shop,environment:body.environment,appVersion:body.appVersion});
+    return json(out);
   }
 
   if(request.method==="GET"&&path==="/api/dashboard"){
