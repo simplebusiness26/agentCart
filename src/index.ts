@@ -5,7 +5,8 @@ import { ShopifyScopeError, getBusinessProfile, getLastSync, syncConnectedStore 
 import { buildProfile, ensureProfile, getActions, getCatalogView, getItemView, getPolicies, getProfileMeta, resolveSlug, searchCatalogView, setProfileActive } from "./ailayer/service";
 import { handleMcp } from "./ailayer/mcp";
 import { buildAgentsMd } from "./ailayer/agentsmd";
-import { ApprovalRequiredError, applyAllAutomatic, applyFix, approveFix, contextFor, listFixes, proposeFixes } from "./fixes";
+import { ApprovalRequiredError, WriteGuardError, applyAllAutomatic, applyFix, approveFix, contextFor, listFixes, proposeFixes, undoFix } from "./fixes";
+import { connectionHealth, recentOps, recordOps } from "./ops";
 import { linkShopToBusiness, monitoringHistory, runMonitorPass } from "./monitor";
 import { classifyOrderSource, getJourney, recordOrderSource, revenueByTier, agenticOrders, startJourney, verifyJourneyId } from "./attribution";
 import { REGISTRY_VERIFIED_ON, providerById, regionAvailability } from "./providers/registry";
@@ -13,6 +14,7 @@ import { providerAccess } from "./providers/robots";
 import { assessChannel, getChannelCapabilities, saveChannelCapabilities } from "./agentic/channel";
 import { saveJourney, verifyJourney } from "./agentic/journey";
 import { launchStatus, missingPrerequisites } from "./launch/gate";
+import { buildUcpManifest, protocolSupport } from "./protocol";
 import { runLaunchGate } from "./launch/runner";
 import { consumeOAuthState, countCustomerEvents, deleteShop, getDashboardWindows, getShop, insertEvent, logComplianceRequest, putOAuthState, rateLimit, redactCustomer, saveOrder, saveShop, setIngestToken, updatePixelId } from "./db";
 import { createWebPixel, encryptToken, exchangeCode, installUrl, normalizeOrderId, pixelSettings, randomState, parseSession, safeCompare, sessionCookie, validShop, verifyOAuthHmac, verifyWebhookHmac, webPixelUpdate } from "./shopify";
@@ -182,7 +184,8 @@ async function route(request:Request,env:Env):Promise<Response>{
           ? await webPixelUpdate(env,shop,token,existing.pixel_id,settings)
           : await createWebPixel(env,shop,token,settings);
         if(pixelId)await updatePixelId(env,shop,pixelId);
-      }catch(e){pixelOk=false;console.error("web pixel activation failed",e);}
+      }catch(e){pixelOk=false;console.error("web pixel activation failed",e);
+        await recordOps(env,"pixel.activate","error",e instanceof Error?e.message:"pixel activation failed",{shop});}
       // Pull authoritative catalogue data now so the dashboard and AI layer have
       // something immediately. Non-fatal for the same reason pixel activation is: the
       // install has already committed.
@@ -287,13 +290,21 @@ async function route(request:Request,env:Env):Promise<Response>{
         return row?json({fix:row}):json({error:"No such fix."},404);
       }
       if(action==="apply")return json({fix:await applyFix(env,shop,id)});
+      if(action==="undo")return json({fix:await undoFix(env,shop,id)});
       if(action==="apply-automatic")return json({applied:await applyAllAutomatic(env,shop)});
       return json({error:"Unknown action."},404);
     }catch(e){
       if(e instanceof ApprovalRequiredError)return json({error:e.message,needsApproval:true},403);
+      if(e instanceof WriteGuardError)return json({error:e.message,writeBlocked:true},409);
       if(e instanceof ShopifyScopeError)return json({error:e.message,needsReauthorization:true},403);
       return json({error:e instanceof Error?e.message:"That fix could not be applied."},502);
     }
+  }
+
+  if(request.method==="GET"&&path==="/api/health/connection"){
+    const shop=await sessionShop(request,env);
+    if(!shop)return json({error:"No connected Shopify session."},401);
+    return json({...await connectionHealth(env,shop),recent:await recentOps(env,shop,25)});
   }
 
   if(request.method==="GET"&&path==="/api/monitoring"){
@@ -332,6 +343,11 @@ async function route(request:Request,env:Env):Promise<Response>{
 
   // Provider compatibility: one place a merchant sees, per AI provider, whether it can discover
   // them, reach them, and act. Assembled from the registry, robots evidence and channel state.
+  if(request.method==="GET"&&path==="/api/protocols"){
+    return json({protocols:protocolSupport(),
+      note:"AgentCart implements discovery and read access for these protocols. It does not process payments or own orders under any of them."});
+  }
+
   if(request.method==="GET"&&path==="/api/providers"){
     const shop=await sessionShop(request,env);
     if(!shop)return json({error:"No connected Shopify session."},401);
@@ -551,6 +567,13 @@ async function route(request:Request,env:Env):Promise<Response>{
     if(request.method!=="GET")return json({error:"Method not allowed"},405);
     const gate=await rateLimit(env,"ai",slug,240,60000).catch(()=>({ok:true,retryAfter:0}));
     if(!gate.ok)return json({error:"Rate limit exceeded"},429,{"retry-after":String(gate.retryAfter)});
+
+    // UCP discovery manifest, advertising only what is genuinely implemented.
+    if(segments[0]==="ucp"||segments[0]===".well-known"){
+      const manifest=await buildUcpManifest(env,shop,slug,env.APP_URL);
+      if(!manifest)return json({error:"This business has no synced profile yet."},404);
+      return json(manifest,200,{"access-control-allow-origin":"*","cache-control":"public, max-age=300"});
+    }
 
     // Hosted agents.md, generated from the same service layer as the JSON endpoints.
     if(segments[0]==="agents.md"||segments[0]==="agents"){

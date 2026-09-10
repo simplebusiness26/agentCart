@@ -1,5 +1,5 @@
 import {decryptToken} from "../shopify";
-import {getShop} from "../db";
+import {getShop,rateLimit} from "../db";
 import type {Env} from "../types";
 import {publishAiLayer} from "./hosted";
 import {productAiMetafield,productSeoDescription} from "./shopify";
@@ -90,6 +90,15 @@ export async function applyFix(env:Env,shop:string,id:string,nowMs=Date.now()){
   if(row.status!=="approved"&&row.status!=="proposed"&&row.status!=="failed")
     throw new Error(`A fix in state ${row.status} cannot be applied.`);
 
+  try{await assertWriteAllowed(env,shop,def,parsed.preview);}
+  catch(e){
+    if(e instanceof WriteGuardError){
+      await setStatus(env,id,"failed",{error:e.message.slice(0,500)});
+      return await getFix(env,shop,id);
+    }
+    throw e;
+  }
+
   await setStatus(env,id,"applying");
   const ctx=await contextFor(env,shop);
   let applied:Record<string,unknown>;
@@ -105,6 +114,47 @@ export async function applyFix(env:Env,shop:string,id:string,nowMs=Date.now()){
   catch(e){check={verified:false,detail:e instanceof Error?e.message:"Verification failed."};}
   if(check.verified)await setStatus(env,id,"verified",{verified_ms:nowMs,after_json:JSON.stringify(applied),error:null});
   else await setStatus(env,id,"failed",{error:`Applied, but could not be confirmed: ${check.detail}`.slice(0,500)});
+  return await getFix(env,shop,id);
+}
+
+export class WriteGuardError extends Error {
+  constructor(reason:string){super(reason);}
+}
+
+// Merchant-write hardening (Phase 11.5). Every write to a merchant's store passes these gates.
+// They are cheap; the cost of skipping them is a merchant's live content.
+export async function assertWriteAllowed(env:Env,shop:string,def:FixDefinition,preview:FixPreview){
+  // 1. The write must target a field the fix declared it would change. A preview that says one
+  //    thing and an apply that does another is exactly what approval is supposed to prevent.
+  const declared=Object.keys(preview.after||{});
+  if(!declared.length)throw new WriteGuardError("This fix declares no change, so there is nothing to apply.");
+
+  // 2. Never overwrite existing merchant content. Fixes fill blanks; they do not replace copy.
+  for(const key of declared){
+    const before=(preview.before||{})[key];
+    if(before!==undefined&&before!==null&&String(before).trim()!==""&&def.fixType!=="hosted_layer")
+      throw new WriteGuardError(`This would overwrite content you already wrote in "${key}". AgentCart only fills blanks.`);
+  }
+
+  // 3. Writes are rate limited per shop, so a loop cannot rewrite a whole catalogue at speed.
+  const gate=await rateLimit(env,"merchant_write",shop,60,60000).catch(()=>({ok:true}));
+  if(!gate.ok)throw new WriteGuardError("Too many changes in a short time. AgentCart paused writing to protect your store.");
+}
+
+export async function undoFix(env:Env,shop:string,id:string,nowMs=Date.now()){
+  const row=await getFix(env,shop,id);
+  if(!row)throw new Error("No such fix.");
+  if(row.status!=="verified"&&row.status!=="applied")
+    throw new Error(`A fix in state ${row.status} has nothing to undo.`);
+  const parsed=JSON.parse(String(row.proposed_change_json||"{}")) as {key:string;preview:FixPreview};
+  const def=fixByKey(parsed.key);
+  if(!def)throw new Error("That fix is no longer available.");
+  if(!def.undo)throw new Error(`"${def.title}" cannot be undone automatically. ${def.undoNote||""}`.trim());
+
+  const ctx=await contextFor(env,shop);
+  await def.undo(ctx,parsed.preview);
+  await env.DB.prepare("UPDATE fixes SET status='undone',undone_ms=?,undo_json=? WHERE id=? AND shop_domain=?")
+    .bind(nowMs,JSON.stringify(parsed.preview.before),id,shop).run();
   return await getFix(env,shop,id);
 }
 

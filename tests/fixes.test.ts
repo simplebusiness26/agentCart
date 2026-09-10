@@ -265,3 +265,95 @@ describe('fix routes',()=>{
     expect(b.done.length).toBeGreaterThan(0);
   });
 });
+
+describe('merchant-write hardening',()=>{
+  it('refuses to overwrite content the merchant already wrote',async()=>{
+    const fake=fakeShopify();
+    fake.seo.set('gid://shopify/Product/1','Copy the merchant wrote themselves.');
+    await proposeFixes(env,SHOP,'shopify');
+    // Force a preview whose "before" is non-empty, simulating content appearing between
+    // preview and apply -- exactly the race approval is meant to protect against.
+    const row=(await listFixes(env,SHOP)).find(f=>f.fix_type==='approval_required');
+    if(row){
+      const parsed=JSON.parse(String(row.proposed_change_json));
+      parsed.preview.before={seoDescription:'Merchant copy that appeared after preview'};
+      sqlite.prepare('update fixes set proposed_change_json=? where id=?')
+        .run(JSON.stringify(parsed),String(row.id));
+      await approveFix(env,SHOP,String(row.id));
+      const out=await applyFix(env,SHOP,String(row.id));
+      expect(out!.status).toBe('failed');
+      expect(String(out!.error)).toContain('only fills blanks');
+    }
+  });
+
+  it('rate limits writes so a loop cannot rewrite a catalogue',async()=>{
+    fakeShopify();
+    const {assertWriteAllowed,WriteGuardError}=await import('../src/fixes');
+    const def=REGISTRY.find(f=>f.key==='shopify.product.ai_metafield')!;
+    const preview={targetId:'x',targetTitle:'x',summary:'x',before:{},after:{metafield:'{}'}};
+    let blocked=false;
+    for(let i=0;i<70;i++){
+      try{await assertWriteAllowed(env,SHOP,def,preview);}
+      catch(e){blocked=e instanceof WriteGuardError;break;}
+    }
+    expect(blocked).toBe(true);
+  });
+
+  it('rejects a fix that declares no change',async()=>{
+    const {assertWriteAllowed,WriteGuardError}=await import('../src/fixes');
+    const def=REGISTRY.find(f=>f.key==='shopify.product.ai_metafield')!;
+    await expect(assertWriteAllowed(env,SHOP,def,
+      {targetId:'x',targetTitle:'x',summary:'x',before:{},after:{}})).rejects.toBeInstanceOf(WriteGuardError);
+  });
+});
+
+describe('reversible fixes',()=>{
+  it('undoes a metafield fix by clearing what AgentCart wrote',async()=>{
+    const fake=fakeShopify();
+    await proposeFixes(env,SHOP,'shopify');
+    const mf=(await listFixes(env,SHOP)).find(f=>f.finding_key==='catalog-schema')!;
+    await applyFix(env,SHOP,String(mf.id));
+    expect(fake.metafields.size).toBeGreaterThan(0);
+    const {undoFix}=await import('../src/fixes');
+    const out=await undoFix(env,SHOP,String(mf.id));
+    expect(out!.status).toBe('undone');
+    expect([...fake.metafields.values()].every(v=>v==='{}')).toBe(true);
+  });
+
+  it('restores the previous SEO description exactly',async()=>{
+    const fake=fakeShopify();
+    await proposeFixes(env,SHOP,'shopify');
+    const seo=(await listFixes(env,SHOP)).find(f=>f.fix_type==='approval_required')!;
+    await approveFix(env,SHOP,String(seo.id));
+    await applyFix(env,SHOP,String(seo.id));
+    expect([...fake.seo.values()].some(v=>v.length>0)).toBe(true);
+    const {undoFix}=await import('../src/fixes');
+    await undoFix(env,SHOP,String(seo.id));
+    // before was empty, so undo restores empty
+    expect([...fake.seo.values()].every(v=>v==='')).toBe(true);
+  });
+
+  it('turns the AI profile back off',async()=>{
+    fakeShopify();
+    await proposeFixes(env,SHOP,'shopify');
+    const hosted=(await listFixes(env,SHOP)).find(f=>f.finding_key==='access-content')!;
+    await applyFix(env,SHOP,String(hosted.id));
+    expect(Number((await getProfileMeta(env,SHOP))!.active)).toBe(1);
+    const {undoFix}=await import('../src/fixes');
+    await undoFix(env,SHOP,String(hosted.id));
+    expect(Number((await getProfileMeta(env,SHOP))!.active)).toBe(0);
+  });
+
+  it('refuses to undo something that was never applied',async()=>{
+    fakeShopify();
+    await proposeFixes(env,SHOP,'shopify');
+    const pending=(await listFixes(env,SHOP)).find(f=>f.status==='proposed')!;
+    const {undoFix}=await import('../src/fixes');
+    await expect(undoFix(env,SHOP,String(pending.id))).rejects.toThrow(/nothing to undo/);
+  });
+
+  it('every fix either supports undo or explains why not',()=>{
+    for(const f of REGISTRY)
+      if(!f.undo) expect(f.undoNote,`${f.key} has no undo and no explanation`).toBeTruthy();
+  });
+});

@@ -86,6 +86,14 @@ export const productSeoDescription:FixDefinition={
     return {seoDescription:res?.productUpdate?.product?.seo?.description||null};
   },
 
+  // Reversible: the field was empty before AgentCart wrote to it, so undo restores that.
+  async undo(ctx,preview){
+    const res=await adminGraphql(ctx.env,ctx.shop,ctx.token,SEO_UPDATE,
+      {input:{id:preview.targetId,seo:{description:String(preview.before.seoDescription??"")}}});
+    const errors=res?.productUpdate?.userErrors||[];
+    if(errors.length)throw new Error(errors.map((e:any)=>e.message).join("; "));
+  },
+
   async verify(ctx,preview){
     // Re-read from Shopify rather than trusting the mutation response.
     const data=await adminGraphql(ctx.env,ctx.shop,ctx.token,PRODUCT_SEO,{id:preview.targetId});
@@ -123,6 +131,12 @@ export const productAiMetafield:FixDefinition={
     const errors=res?.metafieldsSet?.userErrors||[];
     if(errors.length)throw new Error(errors.map((e:any)=>e.message).join("; "));
     return {metafield:res?.metafieldsSet?.metafields?.[0]?.value||null};
+  },
+
+  async undo(ctx,preview){
+    // An AgentCart-owned metafield, so clearing it restores the store to its prior state.
+    await adminGraphql(ctx.env,ctx.shop,ctx.token,METAFIELD_SET,{metafields:[{
+      ownerId:preview.targetId,namespace:"agentcart",key:"ai_summary",type:"json",value:"{}"}]});
   },
 
   async verify(ctx,preview){

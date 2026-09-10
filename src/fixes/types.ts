@@ -30,4 +30,8 @@ export interface FixDefinition {
   // Re-reads the platform and confirms the intended result. A mutation returning 200 is
   // NOT verification; this must independently observe the change.
   verify(ctx:FixContext,preview:FixPreview):Promise<{verified:boolean;detail:string}>;
+  /** Puts the change back. Absent when a change genuinely cannot be reversed, in which case
+   *  undoNote must explain why so the merchant is not left guessing. */
+  undo?(ctx:FixContext,preview:FixPreview):Promise<void>;
+  undoNote?:string;
 }
