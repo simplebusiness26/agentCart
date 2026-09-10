@@ -6,6 +6,7 @@ import { buildProfile, ensureProfile, getActions, getCatalogView, getItemView, g
 import { handleMcp } from "./ailayer/mcp";
 import { ApprovalRequiredError, applyAllAutomatic, applyFix, approveFix, listFixes, proposeFixes } from "./fixes";
 import { linkShopToBusiness, monitoringHistory, runMonitorPass } from "./monitor";
+import { classifyOrderSource, getJourney, recordOrderSource, revenueByTier, agenticOrders, startJourney, verifyJourneyId } from "./attribution";
 import { consumeOAuthState, countCustomerEvents, deleteShop, getDashboardWindows, getShop, insertEvent, logComplianceRequest, putOAuthState, rateLimit, redactCustomer, saveOrder, saveShop, setIngestToken, updatePixelId } from "./db";
 import { createWebPixel, encryptToken, exchangeCode, installUrl, normalizeOrderId, pixelSettings, randomState, parseSession, safeCompare, sessionCookie, validShop, verifyOAuthHmac, verifyWebhookHmac, webPixelUpdate } from "./shopify";
 import { agentReadyPage, aiProfilePage, dashboardPage, errorPage, homePage, privacyPage, setupPage, termsPage } from "./ui";
@@ -294,6 +295,34 @@ async function route(request:Request,env:Env):Promise<Response>{
     return json({history:await monitoringHistory(env,shop)});
   }
 
+  // Starts an AgentCart-controlled commerce journey so a later order can be joined back to the
+  // agent that produced it, even when the storefront pixel never runs.
+  if(path==="/api/journey"&&request.method==="POST"){
+    const gate=await rateLimit(env,"journey",request.headers.get("cf-connecting-ip")||"unknown",120,60000)
+      .catch(()=>({ok:true,retryAfter:0}));
+    if(!gate.ok)return json({error:"Rate limit exceeded"},429,{"retry-after":String(gate.retryAfter)});
+    const body=await request.json<{shop?:string;provider?:string;intent?:string;targetUrl?:string;itemId?:string}>()
+      .catch(()=>({} as any));
+    const shop=String(body.shop||"").toLowerCase();
+    if(!validShop(shop))return json({error:"A valid store domain is required."},400);
+    if(!(await getShop(env,shop)))return json({error:"Unknown store"},404);
+    const provider=String(body.provider||"unknown").toLowerCase();
+    const journeyId=await startJourney(env,shop,provider,{intent:body.intent,targetUrl:body.targetUrl,itemId:body.itemId});
+    return json({journeyId,
+      // The merchant's platform must carry this through checkout for the join to work.
+      attributeName:"agentcart_journey",
+      note:"Attach this as an order note attribute named agentcart_journey to link the resulting order."},201);
+  }
+
+  if(request.method==="GET"&&path==="/api/attribution"){
+    const shop=await sessionShop(request,env);
+    if(!shop)return json({error:"No connected Shopify session."},401);
+    const now=Date.now()+1,from=now-30*24*60*60*1000;
+    return json({tiers:await revenueByTier(env,shop,from,now),
+      agents:await agenticOrders(env,shop,from,now),
+      note:"Evidence tiers are reported separately and never summed. Verified revenue comes from cryptographically verified platform order records; reported revenue comes from the storefront pixel."});
+  }
+
   if(request.method==="GET"&&path==="/api/dashboard"){
     if(url.searchParams.get("demo")==="1")return json(demoData);
     const shop=await sessionShop(request,env);
@@ -360,6 +389,25 @@ async function route(request:Request,env:Env):Promise<Response>{
         await saveOrder(env,shop,orderId,normalizeOrderId(body.admin_graphql_api_id??body.id),
           Number.isFinite(total)?total:null,body.currency?String(body.currency):null,
           Number.isNaN(processed)?Date.now():processed);
+        // Classify from platform channel metadata, so an agentic checkout that never ran the
+        // storefront pixel still yields verified AI-channel revenue. A journey id is accepted
+        // only if its signature verifies for this shop.
+        const claimed=body.note_attributes?.find?.((a:any)=>String(a?.name||"")==="agentcart_journey")?.value;
+        let journeyId:string|null=null;
+        if(claimed){
+          const journey=await getJourney(env,String(claimed));
+          if(journey&&String(journey.shop_domain)===shop
+             &&await verifyJourneyId(env.SHOPIFY_API_SECRET,shop,String(journey.provider||""),String(claimed)))
+            journeyId=String(claimed);
+        }
+        const source=classifyOrderSource({
+          channel:body.source_name?String(body.source_name):null,
+          sourceName:body.source_identifier?String(body.source_identifier):null,
+          referringSite:body.referring_site?String(body.referring_site):null,
+          landingSite:body.landing_site?String(body.landing_site):null,
+          journeyId
+        });
+        await recordOrderSource(env,shop,orderId,source,journeyId);
       }
     }
     else if(topic==="customers/data_request"){

@@ -32,6 +32,11 @@ export interface WebhookBody {
   currency?: string;
   processed_at?: string;
   created_at?: string;
+  source_name?: string;
+  source_identifier?: string;
+  referring_site?: string;
+  landing_site?: string;
+  note_attributes?: Array<{ name?: string; value?: string }>;
   customer?: { id?: string|number; email?: string };
   orders_requested?: Array<string|number>;
   orders_to_redact?: Array<string|number>;
