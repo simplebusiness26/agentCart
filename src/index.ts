@@ -17,6 +17,8 @@ import { launchStatus, missingPrerequisites } from "./launch/gate";
 import { buildUcpManifest, protocolSupport } from "./protocol";
 import { runLaunchGate } from "./launch/runner";
 import { buildChecklist } from "./launch/checklist";
+import { agentCartAgentsMd, handlePublicMcp } from "./public/tools";
+import { buildOutcome } from "./outcome";
 import { consumeOAuthState, countCustomerEvents, deleteShop, getDashboardWindows, getShop, insertEvent, logComplianceRequest, putOAuthState, rateLimit, redactCustomer, saveOrder, saveShop, setIngestToken, updatePixelId } from "./db";
 import { createWebPixel, encryptToken, exchangeCode, installUrl, normalizeOrderId, pixelSettings, randomState, parseSession, safeCompare, sessionCookie, validShop, verifyOAuthHmac, verifyWebhookHmac, webPixelUpdate } from "./shopify";
 import { agentReadyPage, aiProfilePage, dashboardPage, errorPage, homePage, privacyPage, setupPage, termsPage } from "./ui";
@@ -437,6 +439,36 @@ async function route(request:Request,env:Env):Promise<Response>{
     const body=await request.json<{environment?:string;appVersion?:string}>().catch(()=>({} as any));
     const out=await runLaunchGate(env,{shop,environment:body.environment,appVersion:body.appVersion});
     return json(out);
+  }
+
+  // AgentCart as a capability agents can call. Public, read-only, rate limited, and structurally
+  // unable to mutate a merchant's store: none of these tools touch an authenticated path.
+  if(path==="/api/mcp"&&request.method==="POST"){
+    const gate=await rateLimit(env,"publicmcp",request.headers.get("cf-connecting-ip")||"unknown",30,60000)
+      .catch(()=>({ok:true,retryAfter:0}));
+    if(!gate.ok)return json({jsonrpc:"2.0",id:null,error:{code:-32000,message:"Rate limit exceeded."}},429,
+      {"retry-after":String(gate.retryAfter)});
+    let body:any={};
+    try{body=await request.json();}catch{return json({jsonrpc:"2.0",id:null,error:{code:-32700,message:"Invalid JSON."}},400);}
+    const result=await handlePublicMcp(env,body);
+    return result?json(result,200,{"access-control-allow-origin":"*"}):new Response(null,{status:204});
+  }
+  if(path==="/api/mcp"&&request.method==="OPTIONS")
+    return new Response(null,{status:204,headers:{"access-control-allow-origin":"*",
+      "access-control-allow-methods":"POST,OPTIONS","access-control-allow-headers":"content-type"}});
+
+  if(request.method==="GET"&&(path==="/agents.md"||path==="/.well-known/agents.md")){
+    return new Response(agentCartAgentsMd(env.APP_URL),{status:200,
+      headers:{"content-type":"text/markdown; charset=utf-8","cache-control":"public, max-age=3600",
+        "access-control-allow-origin":"*"}});
+  }
+
+  if(request.method==="GET"&&path==="/api/outcome"){
+    const shop=await sessionShop(request,env);
+    if(!shop)return json({error:"No connected Shopify session."},401);
+    const business=await env.DB.prepare("SELECT domain FROM businesses WHERE connected_shop_domain=? LIMIT 1")
+      .bind(shop).first<{domain:string}>();
+    return json(await buildOutcome(env,shop,business?.domain||null));
   }
 
   if(request.method==="GET"&&path==="/api/dashboard"){
