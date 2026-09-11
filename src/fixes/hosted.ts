@@ -32,6 +32,10 @@ export const publishAiLayer:FixDefinition={
     return {slug,publicUrl:`${ctx.env.APP_URL}/ai/${slug}`};
   },
 
+  async undo(ctx){
+    await setProfileActive(ctx.env,ctx.shop,false);
+  },
+
   async verify(ctx){
     const meta=await getProfileMeta(ctx.env,ctx.shop);
     return meta&&Number(meta.active)

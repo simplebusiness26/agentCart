@@ -28,18 +28,48 @@ prove the score rose → publish a hosted AI layer for the rest.**
 5. **Keeps checking.** A daily scheduled rescan of connected businesses, with score history.
 6. **Shows AI-referred traffic.** Visits and orders from identifiable AI assistants, with honest
    limits: unidentifiable referrals are reported as unknown, never guessed.
+7. **Reports which AI assistants can actually reach the business.** A provider registry checked
+   against the site's `robots.txt`, per provider: can it discover you, can it fetch your pages, is
+   its shopping agent even available in your region. Blocking an AI *training* crawler is treated as
+   a legitimate choice and never reduces the score. Where a provider documents that its agent may
+   fetch a page regardless of `robots.txt`, a Disallow is reported as a stated preference, not as
+   proof the agent is blocked.
+8. **Separates revenue by strength of evidence.** Verified, identifiable referral, reported,
+   assisted and unknown are counted separately and never added together.
+9. **Answers "is this ready to launch?" once.** A checklist plus a gate that only passes against
+   real infrastructure. A green test suite never makes AgentCart launch ready, and the code says so.
+10. **Is itself callable by an agent.** A public read-only MCP surface at `/api/mcp` and an
+   `/agents.md`, so an assistant can scan a site and read the standards without a merchant account.
 
 ## Repository
 
 Cloudflare Worker application, D1 schema and migrations, the Agent Ready scanner and scoring model,
-the Shopify connector and fix engine, the hosted AI layer and MCP adapter, the Web Pixel extension,
-privacy and compliance endpoints, tests, and deployment documentation.
+the Shopify connector and fix engine, the hosted AI layer and MCP adapter, the provider registry and
+agentic-commerce attribution, the protocol compatibility layer, the launch gate, the Web Pixel
+extension, privacy and compliance endpoints, tests, and deployment documentation.
+
+Provider claims are sourced, dated and re-checkable: see [`docs/PROVIDER_RESEARCH.md`](docs/PROVIDER_RESEARCH.md).
+
+## What it deliberately does not do
+
+It does not take payment, hold an order, or act as merchant of record under any agentic-commerce
+protocol. It publishes discovery and read access only, and the manifest omits the capabilities it
+cannot honestly claim. It does not buy anything on a customer's behalf. Answer-engine visibility is
+a framework with no live provider behind it — every adapter reports itself unsupported rather than
+returning a number nobody can verify.
 
 ## Status
 
-The application code is complete and tested (`npm run typecheck && npm test`). It is **not yet
-deployed**: it needs a Cloudflare D1 database, a Shopify app and credentials, and a real development
-store to verify against. Those steps are account-level and are listed in
+The application code is complete and tested (`npm run typecheck && npm test`; 673 tests). It is
+**not yet deployed and not launch ready**: it needs a Cloudflare D1 database, a Shopify app and
+credentials, and a real development store to verify against.
+
+Those are not the same statement. The test suite runs against a SQLite shim, not workerd, so a green
+suite establishes that the logic is correct — never that the system works. The launch gate on the
+dashboard's Launch tab is the authoritative answer, and it can only be satisfied by checks that ran
+against real infrastructure.
+
+The remaining steps are account-level and are listed in
 [`docs/USER_ACTIONS.md`](docs/USER_ACTIONS.md); deployment is in [`docs/SETUP.md`](docs/SETUP.md) and
 the design in [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md).
 

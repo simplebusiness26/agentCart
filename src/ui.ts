@@ -91,12 +91,16 @@ export function dashboardPage(demo:boolean,shop?:string|null,pixelFailed=false){
     <button class="tab" data-tab="fixes">Fixes</button>
     <button class="tab" data-tab="layer">AI Layer</button>
     <button class="tab" data-tab="traffic">AI Traffic</button>
+    <button class="tab" data-tab="agents">AI Agents</button>
+    <button class="tab" data-tab="launch">Launch</button>
   </div>
   <div id="panel-overview" class="panel"><div class="empty">Loading…</div></div>
   <div id="panel-ready" class="panel" hidden><div class="empty">Loading…</div></div>
   <div id="panel-fixes" class="panel" hidden><div class="empty">Loading…</div></div>
   <div id="panel-layer" class="panel" hidden><div class="empty">Loading…</div></div>
   <div id="panel-traffic" class="panel" hidden><div class="empty">Loading commerce signals…</div></div>
+  <div id="panel-agents" class="panel" hidden><div class="empty">Loading agent readiness…</div></div>
+  <div id="panel-launch" class="panel" hidden><div class="empty">Loading launch status…</div></div>
   </div></main><script>
 const demo=${demo?"true":"false"};
 let CUR='USD';
@@ -145,7 +149,7 @@ getJSON('/api/dashboard'+(demo?'?demo=1':'')).then(d=>{
 
 if(demo){
   const soon='<div class="card empty"><h3>Available once a store is connected</h3><p>This demo shows AI traffic only.</p></div>';
-  ['overview','ready','fixes','layer'].forEach(id=>set(id,soon));
+  ['overview','ready','fixes','layer','agents','launch'].forEach(id=>set(id,soon));
 }else{
   // ---- Overview ----
   Promise.allSettled([getJSON('/api/monitoring'),getJSON('/api/fixes'),getJSON('/api/ai-layer'),getJSON('/api/sync/status')])
@@ -219,6 +223,76 @@ if(demo){
       fetch('/api/ai-layer',{method:'POST',credentials:'same-origin',headers:{'content-type':'application/json'},
         body:JSON.stringify({active:!l.active})}).then(()=>location.reload());};
   }).catch(()=>signedOut('layer','your AI profile'));
+
+  // ---- AI agents: which assistants can find you, reach you and act ----
+  // Every state is shown as reported. "unknown" and "not available in your region" are first-class
+  // outcomes here and are never rendered as a failure the merchant caused.
+  const STATE={pass:['good','Yes'],fail:['bad','No'],unsupported:['warn','Not supported'],
+    unknown:['warn','Unknown'],not_available_in_region:['warn','Not in your region']};
+  const stateDot=v=>'<span class="dot '+((STATE[v]||['warn'])[0])+'"></span>';
+  const stateLabel=v=>esc((STATE[v]||[null,String(v||'Unknown')])[1]);
+  Promise.allSettled([getJSON('/api/providers'),getJSON('/api/protocols'),getJSON('/api/attribution')])
+  .then(([prov,proto,attr])=>{
+    if(prov.status!=='fulfilled')return signedOut('agents','which AI assistants can reach you');
+    const p=prov.value;
+    const rows=(p.providers||[]).map(a=>'<tr><td><b>'+esc(a.label||a.provider)+'</b>'
+      +'<div class="muted" style="font-size:12px">'+esc((a.protocols||[]).join(', ')||'—')+'</div></td>'
+      +'<td>'+stateDot(a.discovery)+stateLabel(a.discovery)+'</td>'
+      +'<td>'+stateDot(a.agenticFetch)+stateLabel(a.agenticFetch)+'</td>'
+      +'<td>'+stateDot(a.region)+stateLabel(a.region)+'</td>'
+      +'<td class="muted" style="font-size:12px">'+(a.notes||[]).map(n=>esc(n)).join('<br>')+'</td></tr>').join('');
+    const protoRows=proto.status==='fulfilled'
+      ? (proto.value.protocols||[]).map(x=>'<div class="finding"><span class="dot good"></span>'
+        +'<div><b>'+esc(x.label||x.key)+'</b><div class="muted" style="font-size:13px">'+esc(x.summary||'')+'</div></div>'
+        +'<div class="muted">Read</div></div>').join('')
+      : '';
+    const tierRows=attr.status==='fulfilled'
+      ? (attr.value.tiers||[]).map(t=>'<tr><td><b>'+esc(t.label||t.tier)+'</b></td><td>'+num(t.orders)+'</td><td>'+money(t.revenue)+'</td></tr>').join('')
+      : '';
+    set('agents','<div class="card"><h3>Which AI assistants can reach you</h3>'
+      +'<p class="muted">'+esc(p.note||'')+'</p>'
+      +(rows?'<table class="table"><thead><tr><th>Assistant</th><th>Can discover you</th><th>Can fetch pages</th><th>Available to you</th><th></th></tr></thead><tbody>'+rows+'</tbody></table>'
+        :'<div class="empty">Run a readiness scan so AgentCart can read your robots.txt.</div>')
+      +'<div class="muted" style="font-size:12px;margin-top:10px">Provider details verified on '+esc(p.registryVerifiedOn||'—')+'.</div></div>'
+      +(protoRows?'<div class="card" style="margin-top:16px"><h3>Agent protocols</h3>'+protoRows
+        +'<p class="muted" style="font-size:13px">'+esc(proto.value.note||'')+'</p></div>':'')
+      +(tierRows?'<div class="card" style="margin-top:16px"><h3>Orders by strength of evidence</h3>'
+        +'<table class="table"><thead><tr><th>Evidence</th><th>Orders</th><th>Revenue</th></tr></thead><tbody>'+tierRows+'</tbody></table>'
+        +'<p class="muted" style="font-size:13px">'+esc(attr.value.note||'')+'</p></div>':''));
+  });
+
+  // ---- Launch: the one authoritative answer, never softened by a green test suite ----
+  const CHECK={done:['good','Done'],owner_action:['warn','Needs you'],blocked:['bad','Blocked'],
+    not_started:['warn','Not started']};
+  Promise.allSettled([getJSON('/api/launch/checklist'),getJSON('/api/launch'),getJSON('/api/outcome')])
+  .then(([list,gate,out])=>{
+    if(list.status!=='fulfilled')return signedOut('launch','whether AgentCart is ready to launch');
+    const c=list.value,g=gate.status==='fulfilled'?gate.value:null,o=out.status==='fulfilled'?out.value:null;
+    const items=(c.items||[]).map(i=>{const st=CHECK[i.state]||['warn',i.state];
+      return '<div class="finding"><span class="dot '+st[0]+'"></span>'
+        +'<div><b>'+esc(i.label)+'</b><div class="muted" style="font-size:13px">'+esc(i.detail)+'</div></div>'
+        +'<div class="muted">'+esc(st[1])+(i.owner==='you'?' — you':'')+'</div></div>';}).join('');
+    const owner=(c.ownerActions||[]).map(a=>'<li>'+esc(a)+'</li>').join('');
+    const layers=o?'<div class="card" style="margin-top:16px"><h3>What AI is producing for you</h3>'
+      +'<div class="metrics">'
+      +'<div class="metric"><span class="muted">Readiness</span><b>'+(o.readiness.score==null?'—':num(o.readiness.score))+'</b></div>'
+      +'<div class="metric"><span class="muted">AI visits</span><b>'+num(o.customers.visits)+'</b></div>'
+      +'<div class="metric"><span class="muted">Verified AI revenue</span><b>'+money(o.northStar.verifiedRevenue)+'</b></div>'
+      +'<div class="metric"><span class="muted">Reported only</span><b>'+money(o.northStar.reportedRevenue)+'</b></div></div>'
+      +'<p class="muted" style="font-size:13px">'+esc(o.northStar.note)+'</p>'
+      +'<p class="muted" style="font-size:13px">'+esc(o.note)+'</p></div>':'';
+    set('launch','<div class="card"><h3>'+esc(c.headline)+'</h3>'
+      +'<p class="muted">'+esc(c.hardRule)+'</p>'
+      +(g?'<div class="muted" style="font-size:13px">'+esc(g.summary)+'</div>':'')
+      +'<div class="formRow"><button class="btn" id="rungate">Run the launch gate</button></div>'
+      +'<div class="muted" style="font-size:12px">The gate checks real infrastructure. It cannot be satisfied by tests or mocks.</div></div>'
+      +'<div class="card" style="margin-top:16px"><h3>Checklist</h3>'+items+'</div>'
+      +(owner?'<div class="card" style="margin-top:16px"><h3>What only you can do</h3><ul>'+owner+'</ul></div>':'')
+      +layers);
+    document.querySelector('#rungate').onclick=()=>{
+      set('launch','<div class="empty">Running the launch gate against real infrastructure…</div>');
+      getJSON('/api/launch/run',{method:'POST'}).then(()=>location.reload()).catch(()=>location.reload());};
+  });
 }
 </script>`);
 }
