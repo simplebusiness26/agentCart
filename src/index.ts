@@ -170,10 +170,10 @@ async function route(request:Request,env:Env):Promise<Response>{
     if(!(await verifyOAuthHmac(url,env.SHOPIFY_API_SECRET)))return html(errorPage("That Shopify link could not be verified","AgentCart could not confirm the response came from Shopify, so it was rejected. Start the connection again.","/","Back to AgentCart"),401);
     if(!(await consumeOAuthState(env,state,shop)))return html(errorPage("That connection link has expired","Install links are valid for ten minutes and can only be used once. Start the connection again.","/","Back to AgentCart"),401);
     try{
-      const token=await exchangeCode(env,shop,code);
+      const {token,scope}=await exchangeCode(env,shop,code);
       const encrypted=await encryptToken(token,env.TOKEN_ENCRYPTION_KEY);
       const issuedAt=Date.now();
-      await saveShop(env,shop,encrypted,null,issuedAt);
+      await saveShop(env,shop,encrypted,null,issuedAt,scope);
       // Pixel activation is deliberately non-fatal. The install has already committed by
       // this point, so throwing here would show a 500 to a merchant who is in fact
       // connected. Surface it as a banner and let them retry instead.

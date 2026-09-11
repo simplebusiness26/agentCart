@@ -21,7 +21,12 @@ function fixId(nowMs:number){
 export async function contextFor(env:Env,shop:string):Promise<FixContext>{
   const row=await getShop(env,shop);
   if(!row)throw new Error("That store is not connected.");
-  return {env,shop,token:await decryptToken(row.encrypted_access_token,env.TOKEN_ENCRYPTION_KEY)};
+  return {env,shop,token:await decryptToken(row.encrypted_access_token,env.TOKEN_ENCRYPTION_KEY),
+    grantedScopes:(row.granted_scopes||"").split(",").map(s=>s.trim()).filter(Boolean)};
+}
+
+export function missingScopes(def:FixDefinition,granted:string[]){
+  return def.requiredScopes.filter(s=>!granted.includes(s));
 }
 
 async function setStatus(env:Env,id:string,status:FixStatus,fields:Record<string,unknown>={}){
@@ -34,6 +39,15 @@ export async function proposeFixes(env:Env,shop:string,platform:string,nowMs=Dat
   const ctx=await contextFor(env,shop);
   const proposed:Array<Record<string,unknown>>=[];
   for(const def of fixesForPlatform(platform)){
+    // Withheld, not attempted. Offering a fix the connection cannot perform produces a failure
+    // whose only remedy -- reconnect -- asks for the very scopes that are already missing.
+    const missing=missingScopes(def,ctx.grantedScopes);
+    if(missing.length){
+      proposed.push({id:null,key:def.key,title:def.title,fixType:"unavailable",risk:def.risk,
+        summary:`AgentCart cannot offer this yet. Your Shopify connection does not grant ${missing.join(", ")}.`,
+        needsReauthorization:true});
+      continue;
+    }
     let previews:FixPreview[]=[];
     try{previews=await def.preview(ctx);}
     catch(e){console.error(`preview failed for ${def.key}`,e);continue;}
@@ -152,7 +166,22 @@ export async function undoFix(env:Env,shop:string,id:string,nowMs=Date.now()){
   if(!def.undo)throw new Error(`"${def.title}" cannot be undone automatically. ${def.undoNote||""}`.trim());
 
   const ctx=await contextFor(env,shop);
+
+  // Undo writes a stored "before" value back. If what is on the platform now is no longer what
+  // AgentCart wrote, someone has changed it since, and restoring would silently discard that.
+  const current=await def.verify(ctx,parsed.preview);
+  if(!current.verified)
+    throw new WriteGuardError(`AgentCart cannot confirm its change is still in place, so it will not `
+      +`restore an older value over whatever is there now. ${current.detail}`);
+
   await def.undo(ctx,parsed.preview);
+
+  // A mutation returning success is not proof, for a rollback either.
+  const after=await def.verify(ctx,parsed.preview);
+  if(after.verified)
+    throw new Error(`AgentCart could not confirm the change was reverted, so it has not been marked `
+      +`undone. ${after.detail}`);
+
   await env.DB.prepare("UPDATE fixes SET status='undone',undone_ms=?,undo_json=? WHERE id=? AND shop_domain=?")
     .bind(nowMs,JSON.stringify(parsed.preview.before),id,shop).run();
   return await getFix(env,shop,id);

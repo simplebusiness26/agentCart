@@ -194,7 +194,7 @@ const SPECS:Spec[]=[
        `collection=${collection} search=${search}`);}}
 ];
 
-function detectShape(pages:PageEvidence[]){
+export function detectShape(pages:PageEvidence[]){
   // Whether to score catalogue and purchase checks at all. A service business that sells
   // nothing must not be marked down for having no products -- "not applicable" and
   // "failed" are different answers, and the build plan requires the distinction.

@@ -1,6 +1,12 @@
 // The Agent Ready model. Deliberately platform-neutral: nothing here knows about
 // Shopify. Platform adapters plug in via detectPlatform and the fix registry.
 
+import type {DiscoveryFinding} from "../providers/discovery";
+import type {ProviderAccessReport} from "../providers/robots";
+import type {InteractionSignal} from "./interaction";
+import type {PaymentReadiness} from "./payment";
+import type {SafetyReport} from "./safety";
+
 export type CheckStatus="pass"|"partial"|"fail"|"na";
 export type FixType="automatic"|"approval_required"|"manual"|"hosted_layer"|"unavailable";
 
@@ -109,3 +115,16 @@ export interface AgentReadyReport {
   pointsRecoverable:number;
   scannedAt:string;
 }
+
+// The Phase 10 readiness layers, carried alongside the score rather than folded into it.
+// Non-optional on AssessedSite on purpose: an optional field here is what let these layers
+// be declared and then never populated.
+export interface ReadinessLayers {
+  discovery:DiscoveryFinding[];
+  providers:ProviderAccessReport[];
+  safety:SafetyReport;
+  payment:PaymentReadiness;
+  interaction:InteractionSignal[];
+}
+
+export interface AssessedSite extends AgentReadyReport { readiness:ReadinessLayers }

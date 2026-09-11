@@ -15,16 +15,17 @@ export async function consumeOAuthState(env:Env,state:string,shop:string){
   return !!row&&row.shop_domain===shop&&row.expires_at>Date.now();
 }
 
-export async function saveShop(env:Env,shop:string,encryptedToken:string,pixelId?:string|null,sessionEpoch=Date.now()){
-  await env.DB.prepare(`INSERT INTO shops(shop_domain,encrypted_access_token,pixel_id,session_epoch,installed_at,updated_at)
-    VALUES(?,?,?,?,CURRENT_TIMESTAMP,CURRENT_TIMESTAMP)
+export async function saveShop(env:Env,shop:string,encryptedToken:string,pixelId?:string|null,sessionEpoch=Date.now(),grantedScopes?:string|null){
+  await env.DB.prepare(`INSERT INTO shops(shop_domain,encrypted_access_token,pixel_id,session_epoch,granted_scopes,installed_at,updated_at)
+    VALUES(?,?,?,?,?,CURRENT_TIMESTAMP,CURRENT_TIMESTAMP)
     ON CONFLICT(shop_domain) DO UPDATE SET encrypted_access_token=excluded.encrypted_access_token,
-    pixel_id=COALESCE(excluded.pixel_id,shops.pixel_id),session_epoch=excluded.session_epoch,updated_at=CURRENT_TIMESTAMP`)
-    .bind(shop,encryptedToken,pixelId??null,sessionEpoch).run();
+    pixel_id=COALESCE(excluded.pixel_id,shops.pixel_id),session_epoch=excluded.session_epoch,
+    granted_scopes=COALESCE(excluded.granted_scopes,shops.granted_scopes),updated_at=CURRENT_TIMESTAMP`)
+    .bind(shop,encryptedToken,pixelId??null,sessionEpoch,grantedScopes??null).run();
 }
 
 export async function getShop(env:Env,shop:string){
-  return env.DB.prepare("SELECT shop_domain,encrypted_access_token,pixel_id,session_epoch,ingest_token FROM shops WHERE shop_domain=?").bind(shop).first<{shop_domain:string;encrypted_access_token:string;pixel_id:string|null;session_epoch:number;ingest_token:string|null}>();
+  return env.DB.prepare("SELECT shop_domain,encrypted_access_token,pixel_id,session_epoch,ingest_token,granted_scopes FROM shops WHERE shop_domain=?").bind(shop).first<{shop_domain:string;encrypted_access_token:string;pixel_id:string|null;session_epoch:number;ingest_token:string|null;granted_scopes:string|null}>();
 }
 
 export async function updatePixelId(env:Env,shop:string,pixelId:string){

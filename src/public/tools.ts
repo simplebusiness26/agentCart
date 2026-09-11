@@ -1,14 +1,9 @@
 import type {Env} from "../types";
 import {assessSite} from "../agentready";
 import {buildStandards} from "../standards";
-import {assessSafety} from "../agentready/safety";
-import {assessPayment} from "../agentready/payment";
-import {assessInteraction} from "../agentready/interaction";
-import {assessDiscovery} from "../providers/discovery";
-import {providerAccess} from "../providers/robots";
+import {DISCOVERY_PATHS} from "../providers/discovery";
 import {PROTOCOLS} from "../protocol";
 import {resolveSlug,buildProfile} from "../ailayer/service";
-import {LAUNCH_CHECKS} from "../launch/checks";
 
 // AgentCart as a capability an agent can call (Phase 12.8).
 //
@@ -40,20 +35,16 @@ export async function callPublicTool(env:Env,name:string,args:Record<string,unkn
       if(!url)return {error:"A public website address is required."};
       // assessSite applies the SSRF guard, byte caps and time budget already.
       const report=await assessSite(url);
-      const homeHtml=report.pages[0]?.signals?"":"";
-      const standards=buildStandards({report,
-        discovery:[assessDiscovery("agents_md",undefined),assessDiscovery("ucp_manifest",undefined)],
-        providers:providerAccess(undefined),
-        safety:assessSafety(homeHtml),
-        payment:assessPayment(report.pages,homeHtml,
-          {sellsProducts:report.checks.some(c=>c.category==="catalog"&&c.status!=="na")}),
-        interaction:assessInteraction(homeHtml,{})});
+      const standards=buildStandards({report,...report.readiness});
       return {
         domain:report.domain,score:report.score,grade:report.grade,
         scoringVersion:report.scoringVersion,platform:report.platform,
         categories:report.categories,capabilities:report.capabilities,
         pointsRecoverable:report.pointsRecoverable,
         businessType:standards.profile.type,
+        agentStandards:{score:standards.score,applicable:standards.applicable,
+          passing:standards.passing,summary:standards.summary,note:standards.note},
+        discovery:report.readiness.discovery.map(d=>({path:d.path,state:d.state,detail:d.detail})),
         topFixes:report.checks.filter(c=>c.status!=="pass"&&c.status!=="na")
           .sort((a,b)=>b.estimatedGain-a.estimatedGain).slice(0,5)
           .map(c=>({title:c.plainTitle,whyItMatters:c.whyItMatters,fix:c.recommendedFix,pointsRecoverable:c.estimatedGain})),
@@ -61,7 +52,9 @@ export async function callPublicTool(env:Env,name:string,args:Record<string,unkn
       };
     }
     case "get_agent_standards":
-      return {checks:LAUNCH_CHECKS.map(c=>({key:c.key,title:c.title})).slice(0,0),
+      // Deliberately describes what AgentCart checks about a site. The launch-gate checks are
+      // about AgentCart's own infrastructure and are not a public answer to this question.
+      return {discoveryPaths:DISCOVERY_PATHS,
         note:"AgentCart evaluates business readiness across five categories and agent standards across discovery, content, interaction, payment and catalogue protocols.",
         categories:["business","catalog","policies","access","actions"],
         standardsGroups:["discovery","content","interaction","payment","catalog_protocol"],

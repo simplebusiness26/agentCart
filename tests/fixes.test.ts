@@ -3,7 +3,7 @@ import worker from '../src/index';
 import {ApprovalRequiredError,REGISTRY,applyAllAutomatic,applyFix,approveFix,fixByKey,listFixes,proposeFixes,verifiedCount} from '../src/fixes';
 import {saveBusinessProfile,saveCatalog} from '../src/platform';
 import {normalizeProduct} from '../src/platform/shopify';
-import {encryptToken,sessionCookie} from '../src/shopify';
+import {SCOPES,encryptToken,sessionCookie} from '../src/shopify';
 import {saveShop} from '../src/db';
 import {getProfileMeta} from '../src/ailayer/service';
 import {TEST_KEY,TEST_SECRET,fakeEnv} from './helpers/env';
@@ -39,6 +39,11 @@ function fakeShopify(opts:{seoWriteSucceeds?:boolean;metafieldWriteSucceeds?:boo
       const m=variables.metafields[0];metafields.set(m.ownerId,m.value);
       return reply({metafieldsSet:{metafields:[m],userErrors:[]}});
     }
+    if(query.includes('mutation MD(')){
+      calls.push('delete-metafield');
+      const m=variables.metafields[0];metafields.delete(m.ownerId);
+      return reply({metafieldsDelete:{deletedMetafields:[m],userErrors:[]}});
+    }
     if(query.includes('query MF(')){
       calls.push('read-metafield');
       const v=metafields.get(variables.id);
@@ -51,7 +56,7 @@ function fakeShopify(opts:{seoWriteSucceeds?:boolean;metafieldWriteSucceeds?:boo
 
 beforeEach(async()=>{
   const f=fakeEnv();env=f.env;sqlite=f.sqlite;
-  await saveShop(env,SHOP,await encryptToken('shpat_test',TEST_KEY));
+  await saveShop(env,SHOP,await encryptToken('shpat_test',TEST_KEY),null,Date.now(),SCOPES.join(','));
   await saveBusinessProfile(env,SHOP,{name:'Northbound',description:'Gear.',contactEmail:'a@b.example',
     contactPhone:'',address:{},currency:'GBP',primaryUrl:'https://northbound.example',policies:[]},1000);
   await saveCatalog(env,SHOP,[1,2].map(i=>({...normalizeProduct(S.productNode(i),SHOP),
@@ -266,6 +271,38 @@ describe('fix routes',()=>{
   });
 });
 
+describe('scope gating',()=>{
+  it('requests every scope its own fixes declare',()=>{
+    for(const def of REGISTRY)
+      for(const scope of def.requiredScopes)
+        expect(SCOPES).toContain(scope);
+  });
+
+  it('withholds a fix the connection cannot perform instead of failing it',async()=>{
+    const fake=fakeShopify();
+    // A connection granted at install before write_products was requested.
+    await saveShop(env,SHOP,await encryptToken('shpat_test',TEST_KEY),null,Date.now(),'read_products,write_pixels');
+    const out=await proposeFixes(env,SHOP,'shopify');
+    const withheld=out.filter(f=>f.fixType==='unavailable');
+    expect(withheld.length).toBe(2);
+    for(const f of withheld){
+      expect(f.needsReauthorization).toBe(true);
+      expect(String(f.summary)).toContain('write_products');
+    }
+    // Withheld means never attempted: no row is written and Shopify is never called for them.
+    expect((await listFixes(env,SHOP)).some(r=>r.finding_key==='catalog-schema')).toBe(false);
+    expect(fake.calls.filter(c=>c.startsWith('write-'))).toEqual([]);
+  });
+
+  it('treats an install predating the scope record as not granted',async()=>{
+    fakeShopify();
+    const older='older.myshopify.com';
+    await saveShop(env,older,await encryptToken('shpat_test',TEST_KEY),null,Date.now(),null);
+    const out=await proposeFixes(env,older,'shopify');
+    expect(out.filter(f=>f.fixType==='unavailable').length).toBe(2);
+  });
+});
+
 describe('merchant-write hardening',()=>{
   it('refuses to overwrite content the merchant already wrote',async()=>{
     const fake=fakeShopify();
@@ -308,7 +345,7 @@ describe('merchant-write hardening',()=>{
 });
 
 describe('reversible fixes',()=>{
-  it('undoes a metafield fix by clearing what AgentCart wrote',async()=>{
+  it('undoes a metafield fix by deleting what AgentCart wrote',async()=>{
     const fake=fakeShopify();
     await proposeFixes(env,SHOP,'shopify');
     const mf=(await listFixes(env,SHOP)).find(f=>f.finding_key==='catalog-schema')!;
@@ -317,7 +354,25 @@ describe('reversible fixes',()=>{
     const {undoFix}=await import('../src/fixes');
     const out=await undoFix(env,SHOP,String(mf.id));
     expect(out!.status).toBe('undone');
-    expect([...fake.metafields.values()].every(v=>v==='{}')).toBe(true);
+    // Restoring the prior state means removing the key, not leaving an empty object behind:
+    // an empty metafield would still read as published and keep counting as verified.
+    expect(fake.metafields.size).toBe(0);
+    expect(await verifiedCount(env,SHOP)).toBe(0);
+  });
+
+  it('refuses to undo a change the merchant has edited since',async()=>{
+    const fake=fakeShopify();
+    await proposeFixes(env,SHOP,'shopify');
+    const mf=(await listFixes(env,SHOP)).find(f=>f.finding_key==='catalog-schema')!;
+    await applyFix(env,SHOP,String(mf.id));
+    const owner=[...fake.metafields.keys()][0];
+    fake.metafields.set(owner,'{"written":"by the merchant"}');
+    const {undoFix,WriteGuardError}=await import('../src/fixes');
+    await expect(undoFix(env,SHOP,String(mf.id))).rejects.toBeInstanceOf(WriteGuardError);
+    // The merchant's newer value survives, and the fix is not falsely marked undone.
+    expect(fake.metafields.get(owner)).toBe('{"written":"by the merchant"}');
+    const after=(await listFixes(env,SHOP)).find(f=>f.id===mf.id)!;
+    expect(after.status).not.toBe('undone');
   });
 
   it('restores the previous SEO description exactly',async()=>{

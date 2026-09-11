@@ -10,7 +10,9 @@ export interface FixPreview {
   after:Record<string,unknown>;
 }
 
-export interface FixContext { env:Env; shop:string; token:string }
+/** grantedScopes is what Shopify recorded at install. An install predating that record reads as
+ *  empty, which withholds scope-gated fixes rather than offering ones that would fail. */
+export interface FixContext { env:Env; shop:string; token:string; grantedScopes:string[] }
 
 // A fix declares everything about itself, so routes never contain platform mutations and
 // nothing can be applied without a preview, an approval rule and a verification step.

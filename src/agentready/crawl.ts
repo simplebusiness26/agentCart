@@ -1,9 +1,12 @@
+import {DISCOVERY_PATHS} from "../providers/discovery";
+import type {DiscoveryKind,FetchedFile} from "../providers/discovery";
 import {assertScannableUrl} from "../scanner";
 import {classifyPage,extractSignals} from "./extract";
 import type {PageEvidence,PageType} from "./types";
 
 export const MAX_PAGES=10;
 export const MAX_PAGE_BYTES=512_000;
+export const MAX_FILE_BYTES=50_000;
 export const CRAWL_BUDGET_MS=9000;
 
 // Paths worth trying directly when a site does not link them prominently. Cheap: each is
@@ -20,7 +23,9 @@ const CANDIDATE_PATHS:Array<[PageType,string[]]>=[
 // so a large site does not consume the whole budget on near-duplicates.
 const WANTED:PageType[]=["product","collection","contact","shipping","returns","about","faq","policy","booking"];
 
-export interface CrawlResult { pages:PageEvidence[]; homeHtml:string; headers:Record<string,string>; robots?:string; llms?:string; sitemap:boolean }
+export type DiscoveryFiles=Partial<Record<DiscoveryKind,FetchedFile>>;
+
+export interface CrawlResult { pages:PageEvidence[]; homeHtml:string; headers:Record<string,string>; robots?:string; llms?:string; sitemap:boolean; discovery:DiscoveryFiles }
 
 function sameOrigin(a:URL,b:URL){return a.protocol===b.protocol&&a.host===b.host;}
 
@@ -63,6 +68,15 @@ async function fetchPage(url:URL,signal:AbortSignal,headers:Record<string,string
   return {res,html};
 }
 
+async function fetchFile(url:URL,signal:AbortSignal,headers:Record<string,string>):Promise<FetchedFile>{
+  const res=await fetch(url.toString(),{signal,headers,redirect:"follow"});
+  // None of the discovery paths is ever HTML. Many sites answer every unknown path with a
+  // 200 catch-all page, which would otherwise be read as "the file is published but broken".
+  const html=(res.headers.get("content-type")||"").toLowerCase().includes("text/html");
+  if(!res.ok||html)return {ok:false,status:res.ok?404:res.status,body:""};
+  return {ok:true,status:res.status,body:(await res.text()).slice(0,MAX_FILE_BYTES)};
+}
+
 export async function crawlSite(input:string,now=()=>Date.now()):Promise<CrawlResult>{
   const root=assertScannableUrl(input);
   const controller=new AbortController();
@@ -78,12 +92,17 @@ export async function crawlSite(input:string,now=()=>Date.now()):Promise<CrawlRe
   };
 
   try{
-    const [home,robots,llms,sitemap]=await Promise.allSettled([
-      fetchPage(root,controller.signal,ua),
-      fetch(new URL("/robots.txt",root.origin),{signal:controller.signal,headers:ua}),
-      fetch(new URL("/llms.txt",root.origin),{signal:controller.signal,headers:ua}),
-      fetch(new URL("/sitemap.xml",root.origin),{signal:controller.signal,headers:ua})
+    const kinds=Object.keys(DISCOVERY_PATHS) as DiscoveryKind[];
+    const [core,found]=await Promise.all([
+      Promise.allSettled([
+        fetchPage(root,controller.signal,ua),
+        fetch(new URL("/robots.txt",root.origin),{signal:controller.signal,headers:ua})
+      ]),
+      Promise.allSettled(kinds.map(k=>fetchFile(new URL(DISCOVERY_PATHS[k],root.origin),controller.signal,ua)))
     ]);
+    const [home,robots]=core;
+    const discovery:DiscoveryFiles={};
+    kinds.forEach((k,i)=>{const r=found[i];if(r.status==="fulfilled")discovery[k]=r.value;});
     if(home.status!=="fulfilled"||!home.value.res.ok)throw new Error("We could not load that website.");
     const homeHtml=home.value.html;
     const headers:Record<string,string>={};
@@ -120,10 +139,10 @@ export async function crawlSite(input:string,now=()=>Date.now()):Promise<CrawlRe
     }
 
     return {
-      pages,homeHtml,headers,
-      robots:robots.status==="fulfilled"&&robots.value.ok?(await robots.value.text()).slice(0,50_000):undefined,
-      llms:llms.status==="fulfilled"&&llms.value.ok?(await llms.value.text()).slice(0,50_000):undefined,
-      sitemap:sitemap.status==="fulfilled"&&sitemap.value.ok
+      pages,homeHtml,headers,discovery,
+      robots:robots.status==="fulfilled"&&robots.value.ok?(await robots.value.text()).slice(0,MAX_FILE_BYTES):undefined,
+      llms:discovery.llms_txt?.ok?discovery.llms_txt.body:undefined,
+      sitemap:!!discovery.sitemap?.ok
     };
   }finally{clearTimeout(timer);}
 }

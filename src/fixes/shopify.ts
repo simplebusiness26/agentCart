@@ -16,6 +16,8 @@ const METAFIELD_SET=`mutation M($metafields:[MetafieldsSetInput!]!){ metafieldsS
   metafields{ key namespace value } userErrors{ field message } } }`;
 const METAFIELD_READ=`query MF($id:ID!){ product(id:$id){ id
   metafield(namespace:"agentcart",key:"ai_summary"){ value } } }`;
+const METAFIELD_DELETE=`mutation MD($metafields:[MetafieldIdentifierInput!]!){ metafieldsDelete(metafields:$metafields){
+  deletedMetafields{ key namespace ownerId } userErrors{ field message } } }`;
 
 const clean=(v:string)=>String(v||"").replace(/\s+/g," ").trim();
 
@@ -134,15 +136,24 @@ export const productAiMetafield:FixDefinition={
   },
 
   async undo(ctx,preview){
-    // An AgentCart-owned metafield, so clearing it restores the store to its prior state.
-    await adminGraphql(ctx.env,ctx.shop,ctx.token,METAFIELD_SET,{metafields:[{
-      ownerId:preview.targetId,namespace:"agentcart",key:"ai_summary",type:"json",value:"{}"}]});
+    // The metafield did not exist before AgentCart wrote it, so restoring the prior state means
+    // deleting it. Writing an empty object back instead leaves an AgentCart key on the product.
+    const res=await adminGraphql(ctx.env,ctx.shop,ctx.token,METAFIELD_DELETE,{metafields:[{
+      ownerId:preview.targetId,namespace:"agentcart",key:"ai_summary"}]});
+    const errors=res?.metafieldsDelete?.userErrors||[];
+    if(errors.length)throw new Error(errors.map((e:any)=>e.message).join("; "));
   },
 
   async verify(ctx,preview){
     const data=await adminGraphql(ctx.env,ctx.shop,ctx.token,METAFIELD_READ,{id:preview.targetId});
-    const value=String(data?.product?.metafield?.value||"");
-    return value?{verified:true,detail:"Shopify returns the AgentCart metafield."}
-                :{verified:false,detail:"Shopify does not return the metafield yet."};
+    const value=clean(String(data?.product?.metafield?.value||""));
+    const want=clean(String(preview.after.metafield||""));
+    // Confirms the value AgentCart wrote, not merely that some metafield exists. The weaker
+    // check would report verified after the value had been replaced, and would let an empty
+    // object left by a rollback keep counting towards the verified total.
+    if(!value||value==="{}")return {verified:false,detail:"Shopify does not return the metafield yet."};
+    return value===want
+      ? {verified:true,detail:"Shopify returns the AgentCart metafield."}
+      : {verified:false,detail:"Shopify returns a different value than the one AgentCart wrote."};
   }
 };
