@@ -69,8 +69,15 @@ Replace:
 The configured scopes are:
 
 - `read_products`
+- `write_products` — required by the product metafield and SEO fixes
 - `write_pixels`
 - `read_customer_events`
+
+The scopes Shopify actually grants are recorded per shop at install (`shops.granted_scopes`,
+migration `0016`). A fix declaring a scope that is not in that record is withheld with an
+explanation rather than offered and failed. Stores installed before `write_products` was
+requested must reconnect before the two product fixes become available; the Fixes tab shows
+them under "Needs a reconnection" until they do.
 
 The app config also registers:
 

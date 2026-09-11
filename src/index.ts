@@ -5,7 +5,7 @@ import { ShopifyScopeError, getBusinessProfile, getLastSync, syncConnectedStore 
 import { buildProfile, ensureProfile, getActions, getCatalogView, getItemView, getPolicies, getProfileMeta, resolveSlug, searchCatalogView, setProfileActive } from "./ailayer/service";
 import { handleMcp } from "./ailayer/mcp";
 import { buildAgentsMd } from "./ailayer/agentsmd";
-import { ApprovalRequiredError, WriteGuardError, applyAllAutomatic, applyFix, approveFix, contextFor, listFixes, proposeFixes, undoFix } from "./fixes";
+import { ApprovalRequiredError, WriteGuardError, applyAllAutomatic, applyFix, approveFix, contextFor, fixByKey, fixesForPlatform, listFixes, missingScopes, proposeFixes, undoFix } from "./fixes";
 import { connectionHealth, recentOps, recordOps } from "./ops";
 import { linkShopToBusiness, monitoringHistory, runMonitorPass } from "./monitor";
 import { classifyOrderSource, getJourney, recordOrderSource, revenueByTier, agenticOrders, startJourney, verifyJourneyId } from "./attribution";
@@ -259,14 +259,29 @@ async function route(request:Request,env:Env):Promise<Response>{
   if(path==="/api/fixes"&&request.method==="GET"){
     const shop=await sessionShop(request,env);
     if(!shop)return json({error:"No connected Shopify session."},401);
-    const fixes=await listFixes(env,shop);
+    const rows=await listFixes(env,shop);
+    // The stored preview is what the merchant is being asked to approve, so it travels with
+    // the row. Approving a change you cannot see is not approval.
+    const fixes:Record<string,unknown>[]=rows.map(f=>{
+      let parsed:any={};
+      try{parsed=JSON.parse(String(f.proposed_change_json||"{}"));}
+      catch{/* a row written by an older build simply shows no preview */}
+      return {...f,before:parsed?.preview?.before??null,after:parsed?.preview?.after??null,
+        reversible:!!fixByKey(String(parsed?.key||""))?.undo};
+    });
+    const granted=((await getShop(env,shop))?.granted_scopes||"").split(",").map(s=>s.trim()).filter(Boolean);
     // Grouped the way the UI presents them: what we can do, what needs you, what we cannot.
     return json({
       automatic:fixes.filter(f=>f.fix_type!=="approval_required"&&f.status==="proposed"),
       needsApproval:fixes.filter(f=>f.fix_type==="approval_required"&&f.status==="proposed"),
       inProgress:fixes.filter(f=>f.status==="approved"||f.status==="applying"||f.status==="applied"),
       done:fixes.filter(f=>f.status==="verified"),
-      failed:fixes.filter(f=>f.status==="failed")
+      failed:fixes.filter(f=>f.status==="failed"),
+      undone:fixes.filter(f=>f.status==="undone"),
+      unavailable:fixesForPlatform("shopify").map(def=>({key:def.key,title:def.title,
+        missingScopes:missingScopes(def,granted)})).filter(f=>f.missingScopes.length)
+        .map(f=>({...f,needsReauthorization:true,
+          summary:`${f.title}: your Shopify connection does not grant ${f.missingScopes.join(", ")}.`}))
     });
   }
 

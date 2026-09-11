@@ -254,6 +254,26 @@ describe('fix routes',()=>{
     expect(b.needsApproval.length).toBeGreaterThan(0);
     expect(b.done).toEqual([]);
   });
+  it('carry the stored preview so a change can be seen before it is approved',async()=>{
+    fakeShopify();
+    await authed('/api/fixes/propose','POST');
+    const b:any=await (await authed('/api/fixes')).json();
+    const item=b.needsApproval[0];
+    expect(item.after).toBeTruthy();
+    expect(Object.keys(item.after).length).toBeGreaterThan(0);
+    expect(item.before).toBeTruthy();
+    expect(item.reversible).toBe(true);
+  });
+
+  it('name the fixes withheld for a missing scope rather than hiding them',async()=>{
+    fakeShopify();
+    await saveShop(env,SHOP,await encryptToken('shpat_test',TEST_KEY),null,Date.now(),'read_products,write_pixels');
+    const b:any=await (await authed('/api/fixes')).json();
+    expect(b.unavailable.length).toBe(2);
+    expect(b.unavailable[0].needsReauthorization).toBe(true);
+    expect(String(b.unavailable[0].summary)).toContain('write_products');
+  });
+
   it('reject applying an approval-required fix over HTTP',async()=>{
     fakeShopify();
     await authed('/api/fixes/propose','POST');

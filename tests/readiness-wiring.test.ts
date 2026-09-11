@@ -94,6 +94,31 @@ describe('a real scan runs the readiness layers',()=>{
   });
 });
 
+describe('the report page shows the readiness layers',()=>{
+  it('renders an agent standards section from a live scan',async()=>{
+    mockNet(SITE);
+    const {agentReadyPage}=await import('../src/ui');
+    const html=agentReadyPage(await assessSite('https://shop.example'),null);
+    expect(html).toContain('Agent standards');
+    expect(html).toContain('/agents.md');
+    expect(html).toContain('/.well-known/ucp');
+  });
+
+  it('omits the section for a report replayed without readiness rather than showing it empty',async()=>{
+    mockNet(SITE);
+    const {agentReadyPage}=await import('../src/ui');
+    const {readiness,...stored}=await assessSite('https://shop.example');
+    expect(agentReadyPage(stored,null)).not.toContain('Agent standards');
+  });
+
+  it('says a blocked crawler is a choice, not a fault',async()=>{
+    mockNet({...SITE,'/robots.txt':{body:'User-agent: OAI-SearchBot\nDisallow: /'}});
+    const {agentReadyPage}=await import('../src/ui');
+    const html=agentReadyPage(await assessSite('https://shop.example'),null);
+    expect(html).toContain('That is a choice, not a fault');
+  });
+});
+
 describe('the public MCP surface returns real answers',()=>{
   const env={} as Env;
 

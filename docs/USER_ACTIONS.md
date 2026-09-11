@@ -34,9 +34,13 @@ Work items 1–7 in order; the launch gate cannot run until they are done.
 
 5. **Deploy the Shopify app + Web Pixel extension**.
    - Run `npx shopify app deploy` while authenticated to the Shopify developer account.
-   - The app requests `read_products`, `write_pixels` and `read_customer_events` today.
-     `write_products` is additionally required for the product fixes; add it to
-     `shopify.app.toml` before deploying if you want those enabled.
+   - The app requests `read_products`, `write_products`, `write_pixels` and
+     `read_customer_events`. `write_products` is what the two product fixes need; it is
+     requested at install rather than added later, because a fix that needs a scope the
+     connection does not hold fails at apply time and the only remedy offered — reconnect —
+     asks for the same scopes again.
+   - Any store connected before this change must reconnect once. Until it does, the two
+     product fixes appear under "Needs a reconnection" instead of being offered.
 
 6. **Configure the monitoring schedule**.
    - `wrangler.toml` sets a daily cron. Cloudflare cron triggers activate on deploy;

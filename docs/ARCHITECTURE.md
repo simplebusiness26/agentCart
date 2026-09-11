@@ -65,6 +65,24 @@ having no catalogue. Category scores normalise over applicable checks only.
 Every scan records its `scoring_version`. Two scans on different versions are never subtracted from
 one another — the UI says they are not comparable instead of manufacturing a change.
 
+## Readiness layers
+
+One crawl feeds two separate things. `scoreReport` produces the Agent Ready score; `assessReadiness`
+produces the discovery, provider-access, safety, payment and interaction layers from the same fetched
+pages and files, at no extra network cost. `assessSite` returns both, so every scan path — `/scan`,
+`/api/scan` and the monitor — carries the full picture.
+
+`readiness` is a required field on `AssessedSite`, not an optional one. These layers previously
+existed with tests and no caller: the scan path never invoked them, and their single caller passed
+empty strings, so they ran and produced nothing. An optional field is what made that possible to
+miss, so the type no longer permits it. Agent Standards are derived from these layers and reported
+beside the score, never folded into it.
+
+Discovery files are fetched directly (`agents.md`, `llms.txt`, `llms-full.txt`, `sitemap.xml`,
+`.well-known/ucp`). A path answered with an HTML page is treated as absent rather than as a
+published file that fails to parse, because many sites answer every unknown path with a 200
+catch-all and the alternative is telling a merchant their manifest is broken when they have none.
+
 ## Provider readiness
 
 A registry of AI providers and their crawlers, each entry carrying the date its claims were verified
@@ -133,7 +151,20 @@ Two rules are load-bearing:
   reason, and it does not count as an improvement.
 - **Merchant content is never changed without approval.** Anything a customer reads is
   `approval_required`, enforced in the engine rather than the UI. Existing merchant copy is never
-  overwritten — fixes only fill genuinely empty fields.
+  overwritten — fixes only fill genuinely empty fields. The stored preview travels with the fix to
+  the dashboard, because approving a change you cannot see is not approval.
+
+Two consequences of those rules:
+
+- **A declared scope is withheld, not attempted.** `requiredScopes` is checked against the scopes
+  Shopify recorded at install. Offering a fix the connection cannot perform produces a failure whose
+  only remedy — reconnect — asks for the very scopes already missing, so the merchant loops. An
+  install predating the scope record reads as granting nothing, which withholds rather than fails.
+- **Undo confirms before and after.** A rollback restores a stored `before` value, so it first
+  re-reads the platform to confirm AgentCart's own change is still in place; if the value has moved
+  on, the undo is refused rather than overwriting an edit made since. It then verifies the rollback,
+  because a mutation returning success is not proof for a rollback either. `verify()` therefore
+  compares the current value against what was written, not merely that something is present.
 
 Price, inventory, variants, checkout configuration and legal policy text are out of scope and must
 not be added without their own feature and explicit approval.

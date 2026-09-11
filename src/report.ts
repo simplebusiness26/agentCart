@@ -1,4 +1,5 @@
-import type {AgentReadyReport,Check,FixType} from "./agentready/types";
+import type {AgentReadyReport,Check,FixType,ReadinessLayers} from "./agentready/types";
+import {buildStandards} from "./standards";
 
 // All text below that originates from a scanned website is escaped at the point of
 // interpolation. Crawled content is untrusted data and is never treated as markup or
@@ -60,7 +61,29 @@ function fixRow(c:Check){
       <div class="muted" style="margin-top:6px">${c.points}/${c.maxPoints}</div></div></div>`;
 }
 
-export function reportBody(r:AgentReadyReport,comparison?:{delta:number|null;comparable:boolean;previous:{score:number}|null}|null){
+// Reported beside the score, never folded into it: passing a protocol check is not the same as
+// an AI customer being able to use the business. Absent on a report replayed from storage, which
+// predates the readiness layers, so the section is omitted rather than shown empty.
+function standardsSection(r:AgentReadyReport&{readiness?:ReadinessLayers}){
+  if(!r.readiness)return "";
+  const standards=buildStandards({report:r,...r.readiness});
+  const dot=(s:string)=>s==="pass"?"good":s==="fail"?"bad":"";
+  const rows=r.readiness.discovery.map(d=>`<tr><td>${esc(d.path)}</td>
+    <td><span class="dot ${dot(d.state)}"></span>${esc(d.state)}</td>
+    <td class="muted">${esc(d.detail)}</td></tr>`).join("");
+  const blocked=r.readiness.providers.filter(p=>p.discovery==="fail");
+  return `<div class="card" style="margin-top:16px"><h3>Agent standards</h3>
+    <p class="muted">${esc(standards.summary)}</p>
+    <p class="muted" style="font-size:12px">${esc(standards.note)}</p>
+    <table class="table"><thead><tr><th>File</th><th>State</th><th>What it means</th></tr></thead>
+    <tbody>${rows}</tbody></table>
+    ${blocked.length?`<p class="muted" style="font-size:13px;margin-top:12px">Your robots.txt asks
+      ${esc(String(blocked.length))} known AI ${blocked.length===1?"crawler":"crawlers"} not to read this site:
+      ${esc(blocked.map(p=>p.provider).join(", "))}. That is a choice, not a fault, and it is not scored.</p>`:""}
+  </div>`;
+}
+
+export function reportBody(r:AgentReadyReport&{readiness?:ReadinessLayers},comparison?:{delta:number|null;comparable:boolean;previous:{score:number}|null}|null){
   const failing=r.checks.filter(c=>c.status!=="pass"&&c.status!=="na")
     .sort((a,b)=>b.estimatedGain-a.estimatedGain);
   const priority=failing.slice(0,5);
@@ -126,6 +149,8 @@ export function reportBody(r:AgentReadyReport,comparison?:{delta:number|null;com
       <p class="muted">These were skipped rather than failed, and do not count against your score.</p>
       ${skipped.map(c=>`<div class="fix na"><span class="dot"></span><div><b>${esc(c.plainTitle)}</b>
         <div class="muted">${esc(c.evidence)}</div></div><div></div></div>`).join("")}</div>`:""}
+
+    ${standardsSection(r)}
 
     <div class="card" style="margin-top:16px"><h3>Pages checked</h3>
       <table class="table"><thead><tr><th>Page</th><th>Type</th><th>Status</th></tr></thead><tbody>

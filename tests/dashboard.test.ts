@@ -70,6 +70,25 @@ describe('dashboard reads field names the APIs actually emit',()=>{
     expect(o.customers).toHaveProperty('visits');
   });
 
+  it('uses the connection health field names',async()=>{
+    const {connectionHealth}=await import('../src/ops');
+    const h=await connectionHealth(env,SHOP);
+    const html=page();
+    for(const key of ['overall','summary','checks'])expect(h,key).toHaveProperty(key);
+    for(const key of ['key','label','state','detail','fix'])expect(h.checks[0],key).toHaveProperty(key);
+    expect(html).toContain("getJSON('/api/health/connection')");
+    expect(html).toContain('c.label');
+    expect(html).toContain('h.checks');
+  });
+
+  it('reads the fix groups and preview fields the fixes API emits',()=>{
+    const html=page();
+    // Groups added with scope gating and undo. A name the API does not emit blanks a section.
+    for(const group of ['unavailable','undone'])expect(html,group).toContain('f.'+group);
+    expect(html).toContain('i.reversible');
+    expect(html).toContain('/undo');
+  });
+
   it('never reports a blocked training crawler as a merchant failure',()=>{
     const [sample]=providerAccess('User-agent: *\nDisallow: /');
     expect(sample.training).toBe('blocked_by_choice');
