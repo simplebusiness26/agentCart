@@ -27,8 +27,7 @@ SCAN
   -> GET RECOMMENDED
   -> BUSINESS AI AGENT
   -> CONVERSATION OPTIMIZATION
-  -> OWNED AI SALES CHANNELS
-  -> EXTERNAL CHANNEL READINESS
+  -> DISTRIBUTION / SPONSORED AGENT READINESS
   -> CUSTOMER / REVENUE PROOF
 ```
 
@@ -37,50 +36,6 @@ The commercial promise is not "we build chatbots."
 It is:
 
 > **AgentReady makes a business ready to acquire and serve customers through AI.**
-
-## Reality-first product scope
-
-The core product must be made from capabilities AgentReady can actually deliver itself. External advertising platforms are optional distribution, not the product.
-
-### Capabilities AgentReady can provide directly
-
-AgentReady should be able to sell and operate all of the following without waiting for OpenAI, Google, Meta or another provider to grant special advertising access:
-
-- **Business Brain setup** — turn approved website/platform data into one verified AI-ready source of truth.
-- **AI Sales Agent** — a business-specific conversational agent grounded in that Business Brain.
-- **Hosted sales-agent page** — a public AgentReady-hosted conversation URL the merchant can use immediately.
-- **Website chat/widget** — an embeddable agent on the merchant's own site where platform integration allows it.
-- **Shareable agent link** — use in email, social profiles, QR codes, landing pages and campaigns.
-- **Product/service discovery** — answer questions and find suitable products/services using verified data.
-- **Live price/availability lookup** where the connected platform exposes authoritative data.
-- **Policy and FAQ assistance** grounded in approved source material.
-- **Lead/contact capture** using a safe merchant-owned form or signed AgentReady handoff.
-- **Quote-request handoff** for service businesses.
-- **Booking handoff** to the merchant's existing booking provider.
-- **Cart/checkout handoff** to the merchant's existing ecommerce flow.
-- **Human escalation** when the agent cannot safely or confidently complete the request.
-- **Conversation testing** — simulate realistic buyers and detect factual, policy, price and action failures.
-- **Conversation optimization** — improve configuration/business data, rerun the exact tests and prove whether the failure was fixed.
-- **AgentPulse monitoring** — latency, failures, stale data, schema drift and broken handoffs.
-- **AI Visibility testing** — where legitimate provider access/manual evidence exists, test whether assistants mention/recommend the business.
-- **Attribution and outcome proof** — connect signed handoffs to leads, bookings, orders and verified revenue where the downstream system exposes evidence.
-- **MCP/API distribution** — expose approved business information and read-only tools through AgentReady's existing machine-facing layer.
-- **Provider-readiness reports** — tell the merchant whether their agent is technically ready for an external AI channel without pretending AgentReady controls that provider's approval.
-
-### Capabilities that are conditional on third parties
-
-These must never be sold as guaranteed activation:
-
-- OpenAI Sponsored Agent activation;
-- provider-native conversational ad formats;
-- provider-specific ad account eligibility;
-- provider-private conversation metrics;
-- provider-native checkout/transaction execution;
-- any channel that requires an invite, approval, closed alpha or undocumented interface.
-
-AgentReady can prepare, validate and package the business for those channels. It only activates them when a legitimate supported provider path actually exists for that merchant.
-
-As of 2026-09-18, OpenAI Sponsored Agents are a limited alpha for selected advertisers. They remain one optional future channel, not the Phase 18–21 dependency.
 
 ---
 
@@ -552,13 +507,11 @@ Add an **AI Sales** dashboard area showing:
 
 ---
 
-# Phase 20 — Owned Conversational Distribution and External Channel Readiness
+# Phase 20 — Conversational Distribution and Sponsored Agent Readiness
 
 ## Goal
 
-Give every merchant usable distribution channels that AgentReady controls, then add external provider adapters only where those providers expose a legitimate supported path.
-
-A merchant must get value from Phase 20 even if no external Sponsored Agent programme accepts them.
+Turn the Business AI Agent into a portable representative that can be exposed through supported conversational channels without tying AgentReady to a single provider.
 
 ## Current OpenAI constraint
 
@@ -595,56 +548,13 @@ interface ConversationalChannelAdapter {
 }
 ```
 
-Initial adapters/surfaces:
+Initial adapters:
 
-- `agentready_hosted` — public hosted AI Sales Agent page, fully controlled by AgentReady.
-- `agentready_widget` — embeddable website chat/widget using the same Business Brain and action allowlist.
-- `agentready_share_link` — shareable conversation URL suitable for email, social, QR and campaign landing pages.
-- `agentready_mcp` — existing machine-facing MCP/read-only tool surface backed by the same business truth.
-- `agentready_api` — authenticated API surface for approved partner/client integrations where useful.
-- `openai_sponsored_agent` — readiness adapter first; publish/update only when official supported access exists for that advertiser.
+- `agentready_hosted` — fully controlled by AgentReady.
+- `openai_sponsored_agent` — readiness adapter first; publish/update only when official supported access exists.
 - future provider adapters remain registry entries until documented and legitimately accessible.
 
-## 20.2 Owned channel delivery
-
-The owned channels are production capabilities, not placeholders.
-
-### Hosted AI Sales Agent
-
-Provide a merchant-branded public page that:
-
-- starts a signed conversation journey;
-- uses the merchant's active Sales Agent version;
-- shows clear business identity;
-- exposes only approved actions;
-- can hand off to product, quote, booking, contact, cart or human support;
-- is rate-limited and abuse-resistant;
-- can be paused instantly by the merchant.
-
-### Website widget
-
-Provide an embeddable script/app/plugin path where technically appropriate.
-
-The widget must:
-
-- use the same Sales Agent backend as the hosted page;
-- not copy the Business Brain into the browser;
-- load asynchronously;
-- degrade safely if AgentReady is unavailable;
-- respect merchant branding options;
-- expose accessible keyboard/screen-reader behaviour;
-- avoid collecting unnecessary customer data;
-- support signed handoff/journey attribution.
-
-For Shopify, prefer the existing app-extension architecture rather than asking merchants to paste arbitrary theme code. WordPress/WooCommerce can later use the planned plugin adapter. Other platforms may use a small script embed only when CSP/platform rules permit it.
-
-### Shareable conversation link
-
-Every active agent receives a stable merchant-controlled share URL that can be used immediately without an advertising-provider integration.
-
-Optional generated assets may include QR/link variants, but they must resolve to the same canonical hosted agent.
-
-## 20.3 Sponsored Agent / external-channel readiness assessment
+## 20.2 Sponsored Agent readiness assessment
 
 For an eligible business, evaluate whether the Business AI Agent has:
 
@@ -672,7 +582,7 @@ not:
 
 > "OpenAI will approve your Sponsored Agent."
 
-## 20.4 Ads readiness link
+## 20.3 Ads readiness link
 
 Reuse the existing AI Visibility and site-readiness work to test:
 
@@ -686,7 +596,7 @@ Reuse the existing AI Visibility and site-readiness work to test:
 
 Keep normal ChatGPT Ads setup separate from Sponsored Agent eligibility.
 
-## 20.5 Provider-specific packaging
+## 20.4 Provider-specific packaging
 
 Build a compiler:
 
@@ -711,7 +621,7 @@ The compiler may emit:
 
 Never hand provider adapters merchant secrets they do not require.
 
-## 20.6 Channel verification
+## 20.5 Channel verification
 
 After activation on any channel:
 
@@ -725,13 +635,10 @@ After activation on any channel:
 
 Feed channel reliability into AgentPulse.
 
-## 20.7 Phase 20 definition of done
+## 20.6 Phase 20 definition of done
 
 - [ ] Provider-independent channel interface exists.
 - [ ] AgentReady hosted channel works without any third-party eligibility.
-- [ ] Website widget works from the same Sales Agent backend and Business Brain.
-- [ ] Stable shareable conversation links work independently of ad platforms.
-- [ ] MCP/API distribution reuses the same canonical facts and action boundaries.
 - [ ] OpenAI adapter reports current eligibility/readiness honestly.
 - [ ] No unsupported publish/activation path is advertised.
 - [ ] Provider packages derive from the same Business Brain.
@@ -1083,14 +990,13 @@ Recommended order:
 4. **Phase 19A — deterministic scenario/evaluation framework**
 5. **Phase 19B — synthetic conversation runner**
 6. **Phase 19C — fix/optimization loop**
-7. **Phase 20A — AgentReady hosted sales-agent page + share link**
-8. **Phase 20B — embeddable website widget + platform-safe installation paths**
-9. **Phase 20C — conversational channel registry/interface + MCP/API surfaces**
-10. **Phase 20D — OpenAI Sponsored Agent readiness adapter (conditional, non-blocking)**
-11. **Phase 21A — conversation journey/outcome linkage**
-12. **Phase 21B — funnel dashboard**
-13. **Phase 21C — controlled conversation experiments**
-14. **Phase 21D — combined evidence-backed why-losing report**
+7. **Phase 20A — conversational channel registry/interface**
+8. **Phase 20B — AgentReady-hosted channel**
+9. **Phase 20C — OpenAI Sponsored Agent readiness adapter**
+10. **Phase 21A — conversation journey/outcome linkage**
+11. **Phase 21B — funnel dashboard**
+12. **Phase 21C — controlled conversation experiments**
+13. **Phase 21D — combined evidence-backed why-losing report**
 
 Do not make OpenAI Sponsored Agent activation a blocker for Phases 18, 19 or 21.
 
@@ -1209,16 +1115,10 @@ Build My AI Sales Agent
 Test & Improve My AI Sales Agent
         |
         v
-Launch Hosted AI Sales Agent
+Connect AI Channels
         |
         v
-Add Website Chat / Share Link / MCP
-        |
-        v
-Connect External AI Channels when genuinely supported
-        |
-        v
-Sponsored Agent Ready only when eligible
+Sponsored Agent Ready (when eligible)
         |
         v
 Monitor Conversations, Leads and Revenue
@@ -1255,6 +1155,6 @@ Once this foundation is stable, every later channel and optimization feature can
 
 When Phases 18–21 are complete and production-verified, this statement should be defensible:
 
-> **AgentReady can make a business understandable and usable by AI, give that business a merchant-controlled AI representative grounded in verified business facts, deploy that representative through channels AgentReady can operate directly such as a hosted agent, website widget, shareable link and machine-facing tools, continuously test and improve it, connect optional external channels such as Sponsored Agents only when the merchant is genuinely eligible, and show with evidence what happened from AI discovery and conversation through to leads, bookings, orders and verified revenue.**
+> **AgentReady can make a business understandable and usable by AI, give that business a merchant-controlled AI representative grounded in verified business facts, continuously test and improve that representative, expose it through supported conversational channels such as Sponsored Agents when the merchant is actually eligible, and show with evidence what happened from AI discovery and conversation through to leads, bookings, orders and verified revenue.**
 
 That is the next stage of AgentReady: not just **AI-ready websites**, but **AI-ready businesses with a measurable AI sales channel**.
