@@ -1066,6 +1066,26 @@ Do not make OpenAI Sponsored Agent activation a blocker for Phases 18, 19 or 21.
 
 The product must deliver value even when every external Sponsored Agent provider is unavailable.
 
+## Mandatory scanner-superset gate before roadmap completion
+
+The AI Sales Agent roadmap does not replace or freeze the scanner.
+
+AgentReady must maintain a **scanner superset** against credible benchmark products. The detailed parity matrix, Path-to-100 remediation contract and SEO/GEO phases live in:
+
+- `docs/AUSPIA_FEATURE_AUDIT_AND_SEO_GEO_BUILD_PLAN.md`
+
+Roadmap rule:
+
+- every legitimate benchmark check must be covered or deliberately documented as non-applicable/unverifiable;
+- lack of an automatic fix never removes a scanner check;
+- every applicable non-pass must have a Path-to-100 remediation route;
+- every safe fix should move from recommendation to preview/apply/verify/rescan when the platform connection allows it;
+- developer/manual/provider-owned fixes stay visible and include exact verification;
+- a fully controllable applicable configuration should have a defensible route to **100 / 100**;
+- Phases 22–24 extend the roadmap with SEO/GEO opportunity intelligence, grounded content optimisation/publishing, and search+AI outcome measurement.
+
+No future AgentReady release should be described as scanner-complete while the maintained benchmark matrix contains a useful capability in `planned` state.
+
 ---
 
 # Automated test requirements
