@@ -205,7 +205,14 @@ if(demo){
 
   // ---- Agent Ready ----
   set('ready','<div class="card"><h3>Check your website</h3><p class="muted">Run a fresh Agent Ready assessment of your public website.</p>'
-    +'<form class="formRow" action="/scan" method="get"><input class="input" name="url" placeholder="yourbusiness.com" required><button class="btn primary">Run a check</button></form></div>');
+    +'<form class="formRow" action="/scan" method="get"><input class="input" name="url" placeholder="yourbusiness.com" required><button class="btn primary">Run a check</button></form></div>'
+    +'<div class="card" style="margin-top:16px"><h3>Path to 100</h3><p class="muted">See every applicable point you can recover, who owns each fix and exactly how AgentReady will verify it.</p>'
+    +'<button class="btn" id="buildPath100">Build my Path to 100</button><div id="path100Result" style="margin-top:14px"></div></div>');
+  document.querySelector('#buildPath100').onclick=()=>{const button=document.querySelector('#buildPath100'),box=document.querySelector('#path100Result');button.disabled=true;box.innerHTML='<div class="muted">Scanning the connected public website and emerging standards…</div>';
+    getJSON('/api/readiness/path-to-100',{method:'POST'}).then(r=>{const p=r.path||{},groups=p.grouped||{};
+      const rows=(p.paths||[]).map(x=>'<div class="finding"><span class="dot warn"></span><div><b>'+esc(x.findingKey)+'</b><div class="muted" style="font-size:12px">'+esc((x.steps||[])[0]||'')+' · Verify: '+esc((x.verification||[])[0]||'')+'</div></div><div>+'+num(x.scoreRecoverable)+' · '+esc(x.mode)+'</div></div>').join('');
+      box.innerHTML='<div class="metrics"><div class="metric"><span class="muted">Current</span><b>'+num(p.currentScore)+'</b></div><div class="metric"><span class="muted">Potential</span><b>'+num(p.potentialScore)+'</b></div><div class="metric"><span class="muted">Automatic</span><b>+'+num(groups.automatic)+'</b></div><div class="metric"><span class="muted">Needs people/platform</span><b>+'+num(Number(groups.approval_required||0)+Number(groups.guided||0)+Number(groups.manual||0)+Number(groups.developer_instructions||0))+'</b></div></div>'+(rows||'<div class="empty">Every applicable scored check currently passes.</div>');
+    }).catch(e=>{box.textContent=e.message;}).finally(()=>{button.disabled=false;});};
 
   // ---- Fixes ----
   const shorten=v=>{const s=typeof v==='string'?v:JSON.stringify(v);return !s||s==='null'?'(empty)':s.length>160?s.slice(0,160)+'…':s;};
