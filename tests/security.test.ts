@@ -62,7 +62,14 @@ describe('authenticated routes reject anonymous callers',()=>{
     ['/api/dashboard','GET'],['/api/sync','POST'],['/api/sync/status','GET'],
     ['/api/ai-layer','GET'],['/api/fixes','GET'],['/api/fixes/propose','POST'],
     ['/api/fixes/abc/apply','POST'],['/api/monitoring','GET'],
-    ['/api/agentpulse','GET'],['/api/agentpulse/run','POST']
+    ['/api/agentpulse','GET'],['/api/agentpulse/run','POST'],
+    ['/api/business-brain','GET'],['/api/business-brain/sync','POST'],
+    ['/api/sales-agent','GET'],['/api/sales-agent/preview','POST'],['/api/sales-agent/test','POST'],
+    ['/api/sales-agent/package','GET'],['/api/sales-agent/events','POST'],
+    ['/api/readiness/path-to-100','POST'],['/api/growth','GET'],['/api/growth/brief','POST'],
+    ['/api/analytics','GET'],['/api/analytics/prompt-runs','POST'],['/api/analytics/fanouts/synthetic','POST'],
+    ['/api/analytics/crawlers','POST'],['/api/analytics/perception','POST'],['/api/analytics/shopping','POST'],
+    ['/api/analytics/export.csv','GET'],['/api/analytics/mcp','POST']
   ])('%s %s returns 401',async(path,method)=>{
     const res=await worker.fetch(new Request(`https://agentcart.example${path}`,{method}),env);
     expect(res.status).toBe(401);

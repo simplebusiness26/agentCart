@@ -1,5 +1,7 @@
 # AgentReady vs Auspia — Feature Audit + SEO/GEO Growth Engine Build Plan
 
+> **Implementation update — 2026-09-18:** The Scanner Superset registry, Path-to-100 contract, emerging-standard probes, growth-opportunity model, deterministic page intelligence, grounded brief/draft engine and evidence-specific learning foundation are implemented on `codex/phases-18-29`. Live CMS/Search Console connections remain authorisation-dependent. See `docs/PHASES_18_29_IMPLEMENTATION_STATUS.md`.
+
 Prepared 2026-09-18 against AgentReady `main` after Phases 13–17 and the Phase 18–21 AI Sales Agent roadmap.
 
 ## Why this document exists

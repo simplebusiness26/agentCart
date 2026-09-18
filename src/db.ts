@@ -38,6 +38,40 @@ export async function deleteShop(env:Env,shop:string){
   // hostname with no link to `shops`, so only a merchant who scanned their own
   // myshopify domain can be matched; the privacy page says so.
   await env.DB.batch([
+    env.DB.prepare(`DELETE FROM conversation_test_results WHERE run_id IN
+      (SELECT id FROM conversation_test_runs WHERE shop_domain=?)`).bind(shop),
+    env.DB.prepare(`DELETE FROM conversation_test_cases WHERE suite_id IN
+      (SELECT id FROM conversation_test_suites WHERE shop_domain=?)`).bind(shop),
+    env.DB.prepare("DELETE FROM conversation_test_runs WHERE shop_domain=?").bind(shop),
+    env.DB.prepare("DELETE FROM conversation_test_suites WHERE shop_domain=?").bind(shop),
+    env.DB.prepare(`DELETE FROM ai_sales_agent_publications WHERE agent_id IN
+      (SELECT id FROM ai_sales_agents WHERE shop_domain=?)`).bind(shop),
+    env.DB.prepare(`DELETE FROM ai_sales_agent_actions WHERE agent_id IN
+      (SELECT id FROM ai_sales_agents WHERE shop_domain=?)`).bind(shop),
+    env.DB.prepare(`DELETE FROM ai_sales_agent_versions WHERE agent_id IN
+      (SELECT id FROM ai_sales_agents WHERE shop_domain=?)`).bind(shop),
+    env.DB.prepare("DELETE FROM ai_sales_agents WHERE shop_domain=?").bind(shop),
+    env.DB.prepare("DELETE FROM conversation_events WHERE shop_domain=?").bind(shop),
+    env.DB.prepare("DELETE FROM business_facts WHERE shop_domain=?").bind(shop),
+    env.DB.prepare(`DELETE FROM content_versions WHERE brief_id IN
+      (SELECT id FROM content_briefs WHERE shop_domain=?)`).bind(shop),
+    env.DB.prepare("DELETE FROM content_briefs WHERE shop_domain=?").bind(shop),
+    env.DB.prepare("DELETE FROM growth_measurements WHERE shop_domain=?").bind(shop),
+    env.DB.prepare("DELETE FROM growth_opportunities WHERE shop_domain=?").bind(shop),
+    env.DB.prepare("DELETE FROM remediation_paths WHERE shop_domain=?").bind(shop),
+    env.DB.prepare(`DELETE FROM visibility_chat_features WHERE run_id IN
+      (SELECT id FROM visibility_prompt_runs WHERE shop_domain=?)`).bind(shop),
+    env.DB.prepare(`DELETE FROM visibility_citations WHERE run_id IN
+      (SELECT id FROM visibility_prompt_runs WHERE shop_domain=?)`).bind(shop),
+    env.DB.prepare(`DELETE FROM visibility_sources WHERE run_id IN
+      (SELECT id FROM visibility_prompt_runs WHERE shop_domain=?)`).bind(shop),
+    env.DB.prepare(`DELETE FROM visibility_fanouts WHERE run_id IN
+      (SELECT id FROM visibility_prompt_runs WHERE shop_domain=?)`).bind(shop),
+    env.DB.prepare("DELETE FROM visibility_prompt_runs WHERE shop_domain=?").bind(shop),
+    env.DB.prepare("DELETE FROM crawler_observations WHERE shop_domain=?").bind(shop),
+    env.DB.prepare("DELETE FROM perception_observations WHERE shop_domain=?").bind(shop),
+    env.DB.prepare("DELETE FROM shopping_observations WHERE shop_domain=?").bind(shop),
+    env.DB.prepare("DELETE FROM analytics_actions WHERE shop_domain=?").bind(shop),
     env.DB.prepare(`DELETE FROM agentpulse_steps WHERE run_id IN
       (SELECT id FROM agentpulse_runs WHERE shop_domain=?)`).bind(shop),
     env.DB.prepare(`DELETE FROM agentpulse_incidents WHERE target_id IN

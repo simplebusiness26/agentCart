@@ -35,7 +35,8 @@ describe('journey ids',()=>{
   });
   it('reject tampered or malformed ids without throwing',async()=>{
     const id=await createJourneyId(TEST_SECRET,SHOP,'meta');
-    for(const bad of [id.slice(0,-1)+'x','ac1_nope','','not-an-id','ac1_a.b.c.d'])
+    const tampered=id.slice(0,-1)+(id.endsWith('x')?'y':'x');
+    for(const bad of [tampered,'ac1_nope','','not-an-id','ac1_a.b.c.d'])
       expect(await verifyJourneyId(TEST_SECRET,SHOP,'meta',bad),bad).toBe(false);
   });
   it('are collision resistant across rapid creation',async()=>{

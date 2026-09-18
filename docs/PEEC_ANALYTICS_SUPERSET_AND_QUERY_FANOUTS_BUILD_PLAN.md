@@ -1,5 +1,7 @@
 # AgentReady vs Peec AI — Analytics Superset + Query Fanouts Build Plan
 
+> **Implementation update — 2026-09-18:** Phases 25–29 now have atomic prompt observations, visibility/position/SoV/sentiment metrics, observed-vs-synthetic fanouts, source/citation data, crawl/perception evidence, SKU shopping checks, analytics actions, CSV export and authenticated MCP/API foundations on `codex/phases-18-29`. Provider data still remains unavailable until legitimately connected. See `docs/PHASES_18_29_IMPLEMENTATION_STATUS.md`.
+
 Prepared 2026-09-18 against AgentReady current main and Peec AI's public product/documentation.
 
 ## Product rule

@@ -62,6 +62,10 @@ describe('public routes',()=>{
     expect(res.status).toBe(200);
     expect((await res.json() as any).ok).toBe(true);
   });
+  it('publishes the maintained scanner and analytics benchmark without merchant data',async()=>{
+    const res=await get('/api/readiness/benchmark');expect(res.status).toBe(200);
+    const body:any=await res.json();expect(body.peecCapabilities).toBeGreaterThanOrEqual(28);expect(body.releaseBlockers).toBe(0);
+  });
   it('404s an unknown path',async()=>{
     expect((await get('/nope')).status).toBe(404);
   });

@@ -1,5 +1,17 @@
 # AgentCart setup and deployment
 
+## Phase 18–29 database upgrade
+
+The normal D1 migration command also applies the non-destructive Phase 18–29 migrations:
+
+```bash
+npm run db:migrate:remote
+```
+
+This creates the Business Brain, Sales Agent, conversation-test, growth/content,
+visibility/fanout/source/citation, crawler/perception, shopping and analytics-action tables.
+Do not mark the upgrade complete until the command has run against the production D1 binding.
+
 AgentCart is built to validate the product on free tiers first. The application is a Cloudflare Worker with D1 storage plus a Shopify Web Pixel extension.
 
 ## 1. Install dependencies
