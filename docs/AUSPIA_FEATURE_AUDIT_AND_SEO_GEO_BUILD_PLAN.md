@@ -28,7 +28,153 @@ AgentReady already goes materially further in several other directions:
 - lead/order/revenue evidence;
 - AI Sales Agent roadmap.
 
-The goal is **not** to copy Auspia. The goal is to close the SEO/GEO/content gap while keeping AgentReady's stronger "fix -> verify -> monitor -> prove outcome" philosophy.
+The goal is **not** to stop at copying Auspia. The finished AgentReady scanner must be a **superset benchmark**: at minimum it should cover every legitimate, useful capability exposed by the strongest comparable scanners we can verify, and then go further with AgentReady's stronger "fix -> verify -> monitor -> prove outcome" philosophy.
+
+## Non-negotiable scanner rule: benchmark parity or better
+
+AgentReady must not knowingly ship a materially less capable scanner than a benchmark competitor.
+
+That means:
+
+- if Auspia, Cloudflare or another credible product checks a legitimate agent-readiness capability, AgentReady either checks it too or records a documented technical/standards reason why the check is unsafe, obsolete, unverifiable or non-applicable;
+- a missing auto-fix is **never** a reason to omit a scan check;
+- scan coverage and remediation coverage are separate capabilities;
+- every applicable non-pass result must expose a **Path to 100**;
+- every scanner release must be compared against a maintained benchmark matrix before being called complete.
+
+The target is:
+
+> **No useful benchmark check missing, plus additional checks that prove whether declared capabilities actually work.**
+
+### Benchmark set
+
+Maintain a versioned benchmark registry covering, at minimum:
+
+- Auspia Agent Readiness;
+- Cloudflare IsItAgentReady / equivalent current Cloudflare agent-readiness tooling;
+- Scrunch technical/agent-experience diagnostics where publicly observable;
+- relevant Shopify/commerce readiness diagnostics;
+- any new credible scanner that introduces a legitimate standard or capability not already covered.
+
+Each benchmark entry records:
+
+- product;
+- check/capability;
+- evidence URL;
+- observed date;
+- current AgentReady equivalent;
+- state: `covered | stronger | planned | intentionally_not_applicable | unverifiable`;
+- rationale;
+- issue/phase responsible for closing any gap.
+
+A `planned` benchmark item is a release blocker for the scanner-superset milestone.
+
+---
+
+# Scanner scoring and the Path to 100
+
+AgentReady already has a business-first score out of 100. The expanded scanner keeps the score understandable while making the path to improvement explicit.
+
+## Score rule
+
+**100 means every applicable merchant-controllable scored requirement is satisfied.**
+
+Do not punish a merchant for:
+
+- an ecommerce protocol on a non-commerce site;
+- a provider feature that is not available in their region;
+- a third-party capability the provider does not expose;
+- an emerging optional standard that has no business relevance.
+
+Those remain `neutral / unsupported / not_applicable / provider_blocked / unknown` as appropriate rather than silently dragging the merchant's score down.
+
+Conversely, an applicable merchant-controllable failure must not be hidden as neutral merely because AgentReady cannot automatically fix it.
+
+## Path-to-100 contract
+
+Every applicable result that is not passing must return a remediation object equivalent to:
+
+```ts
+interface RemediationPath {
+  findingKey: string;
+  currentState: "fail" | "unknown" | "partial" | "blocked";
+  targetState: "pass";
+  scoreRecoverable: number;
+  owner: "agentready" | "merchant" | "developer" | "platform" | "provider";
+  mode:
+    | "automatic"
+    | "approval_required"
+    | "guided"
+    | "developer_instructions"
+    | "manual"
+    | "provider_dependency";
+  canAgentReadyApply: boolean;
+  canVerify: boolean;
+  previewAvailable: boolean;
+  undoAvailable: boolean;
+  requirements: string[];
+  steps: string[];
+  verification: string[];
+  officialDocs: string[];
+}
+```
+
+The report must answer, in plain English:
+
+1. **What failed?**
+2. **Why does it matter?**
+3. **How many points can this recover?**
+4. **Can AgentReady fix it automatically?**
+5. **If not, exactly who must do what?**
+6. **What does AgentReady need connected or authorised to do more?**
+7. **How will AgentReady verify the fix?**
+8. **What is still preventing a 100 score?**
+
+## Remediation modes
+
+### Automatic
+
+AgentReady can safely apply the change without changing customer-visible meaning.
+
+### Approval required
+
+AgentReady can apply the fix, but the merchant must preview/approve customer-visible or policy-sensitive changes.
+
+### Guided
+
+AgentReady can prepare the exact configuration/file/code and walk the merchant through the last account-level step.
+
+### Developer instructions
+
+AgentReady cannot write to the target platform, but produces exact evidence-backed implementation instructions, files/snippets where safe, current official documentation links and the verification test.
+
+### Manual
+
+The issue requires a genuine business/legal/content decision. AgentReady still provides the precise missing information and re-tests after the merchant supplies it.
+
+### Provider dependency
+
+The merchant and AgentReady cannot currently change the result because the external provider controls availability/access. It remains visible but must not falsely count as a merchant failure.
+
+## 100-point completion screen
+
+Add a dedicated **Path to 100** view:
+
+```text
+Agent Ready score: 73 / 100
+
+AgentReady can recover automatically:        +11
+Needs your approval:                          +6
+Needs developer/platform work:               +7
+Needs business information from you:          +3
+External provider dependency:                  neutral
+
+Potential score after completing your plan: 100 / 100
+```
+
+Each row opens the exact fixes needed.
+
+The user should never have to work out how to move from 73 to 100 themselves.
 
 ---
 
@@ -123,7 +269,7 @@ AgentReady should close these scanner gaps:
 
 ### Important design rule
 
-Do **not** copy Auspia by simply adding 17 pass/fail boxes to the Agent Ready score.
+AgentReady **must include every legitimate benchmark check**. The distinction is that we do not stop at adding boxes, and we do not distort the business score by treating every optional protocol as mandatory.
 
 AgentReady's stronger model remains:
 
@@ -136,13 +282,19 @@ AgentReady's stronger model remains:
 
 Presence of a file or protocol is **evidence**, not the business outcome.
 
+Fixability never controls scanner visibility:
+
+> **Scan everything legitimate. Fix everything AgentReady can. For everything it cannot directly change, generate the exact path, owner, requirements and verification needed to get the applicable check to pass.**
+
 ---
 
 # 2. Standards Coverage Upgrade
 
 ## Goal
 
-Match or exceed Auspia's current public agent-readiness standards coverage without weakening AgentReady's evidence model.
+Match or exceed **all currently verified benchmark scanner capabilities**, beginning with Auspia's current public agent-readiness coverage, without weakening AgentReady's evidence model.
+
+This phase is complete only when the maintained benchmark matrix shows no useful competitor check in `planned` state.
 
 ## New discovery module
 
@@ -228,13 +380,21 @@ Until a supported runtime exists, report `unknown`, not fail.
 
 ## Definition of done
 
-- Every Auspia public readiness check above has a corresponding AgentReady state or a documented reason it is not currently safe/legitimate to test.
-- Optional standards do not reduce the business-first score just for being absent.
+- Every Auspia public readiness check above has a corresponding AgentReady scanner implementation or a documented standards reason it is not safe/legitimate/applicable.
+- Every useful check from the wider maintained benchmark set is `covered` or `stronger`; none remains merely `planned`.
+- Optional/non-applicable standards do not reduce the business-first score.
+- Applicable merchant-controllable failures always affect the relevant scored dimension; lack of an auto-fix never hides the failure.
+- Every applicable non-pass finding has a populated Path-to-100 remediation object.
+- Every finding exposes at least one of: automatic fix, approval fix, guided fix, developer instructions, manual/business requirement, or provider dependency.
+- Where AgentReady can safely create/configure the missing artefact, that path is implemented through Fix My Site rather than merely described.
 - Declared support is separate from runtime-verified support.
 - Current specs and evidence dates live in `src/standards/registry.ts`.
-- Any stale standard becomes `unknown`.
-- Where AgentReady can safely fix a missing artefact, the finding links into Fix My Site.
-- Every new check has regression tests and malformed-input tests.
+- Any stale standard becomes `unknown` until re-verified.
+- Every automatic/approval fix is independently verified after application and feeds a rescan.
+- Every guided/developer/manual fix has a machine-verifiable completion check so AgentReady can confirm it later.
+- Every new check has regression tests, malformed-input tests and applicability tests.
+- The dashboard can show **current score**, **points recoverable**, and **potential score after completing the plan**.
+- For a fully controllable applicable configuration, the remediation plan can take the business to **100 / 100**.
 
 ---
 
@@ -835,20 +995,34 @@ Recommended sequence:
 
 1. Finish Phase 13–17 production verification.
 2. Build Phase 18A Business Brain.
-3. Add the **Standards Coverage Upgrade** so AgentReady matches/exceeds Auspia's scanner breadth.
-4. Build Phase 22 opportunity intelligence.
-5. Build Phase 23 page/content audit + briefs + existing-page fixes first.
-6. Add WordPress/WooCommerce publishing adapter.
-7. Add Shopify content publishing where safe.
-8. Build Phase 24 Search Console + AI Visibility measurement loop.
-9. Connect Phase 19 conversation failures/customer questions into Phase 22 opportunities.
-10. Add optional automated publishing policies only after the review/fact-check/rollback system is proven.
+3. Build the **Scanner Superset + Path to 100 foundation**: benchmark registry, remediation contract, potential-score calculation and dashboard.
+4. Add the **Standards Coverage Upgrade** until AgentReady matches/exceeds the complete maintained benchmark set, not just Auspia.
+5. Implement automatic/guided/developer remediation for every new scanner finding and wire verification/rescan.
+6. Build Phase 22 opportunity intelligence.
+7. Build Phase 23 page/content audit + briefs + existing-page fixes first.
+8. Add WordPress/WooCommerce publishing adapter.
+9. Add Shopify content publishing where safe.
+10. Build Phase 24 Search Console + AI Visibility measurement loop.
+11. Connect Phase 19 conversation failures/customer questions into Phase 22 opportunities.
+12. Add optional automated publishing policies only after the review/fact-check/rollback system is proven.
 
 ---
 
 # 7. Immediate first PRs
 
-## PR A — readiness parity
+## PR A — scanner superset foundation
+
+Implement:
+
+- versioned competitor/benchmark capability registry;
+- scanner-capability matrix;
+- Path-to-100 remediation schema;
+- potential-score calculation;
+- remediation coverage reporting;
+- dashboard section showing automatic / approval / developer / manual / provider-dependency points;
+- CI test that prevents a benchmark capability marked `covered` from losing its implementation silently.
+
+## PR B — readiness parity and remediation
 
 Implement the lowest-risk missing checks first:
 
@@ -871,7 +1045,9 @@ Then add:
 
 Every standard needs a verified source/date in the registry before it can produce a confident result.
 
-## PR B — SEO/GEO Page Intelligence v1
+For every check added in this PR, add the corresponding remediation strategy in the same PR. A scan-only check without a remediation path is incomplete, even when the remediation is developer/manual/provider-owned.
+
+## PR C — SEO/GEO Page Intelligence v1
 
 Add deterministic page diagnostics for:
 
@@ -890,7 +1066,7 @@ Add deterministic page diagnostics for:
 
 No LLM required for the deterministic first layer.
 
-## PR C — Growth Opportunity model
+## PR D — Growth Opportunity model
 
 Unify:
 
@@ -907,6 +1083,8 @@ This becomes the queue that drives content work.
 # Final product direction
 
 AgentReady should not become "Auspia plus one more scanner."
+
+It should nevertheless be **at least as capable as Auspia and every other maintained scanner benchmark at detecting legitimate readiness issues**. Differentiation happens after parity: better applicability, better remediation, runtime verification, real journeys and business-outcome proof.
 
 The stronger destination is:
 
