@@ -19,11 +19,12 @@ const css=`
 .tab{background:none;border:0;border-bottom:2px solid transparent;color:var(--muted);font:inherit;font-weight:700;padding:10px 14px;cursor:pointer}
 .tab.on{color:var(--text);border-bottom-color:var(--accent)}
 .delta{font-size:14px;font-weight:750}.delta.up{color:var(--good)}.delta.down{color:var(--bad)}
-@media(max-width:780px){.hero{grid-template-columns:1fr;padding-top:42px}.hero h1{letter-spacing:-2.5px}.grid3,.metrics,.two{grid-template-columns:1fr}.navlinks a:not(.keep){display:none}.formRow{flex-direction:column}.dashHead{align-items:flex-start;gap:14px;flex-direction:column}.footerin{flex-direction:column}.metric b{font-size:25px}.cando{grid-template-columns:1fr}}
+.demoShell{display:grid;grid-template-columns:.86fr 1.14fr;gap:18px;align-items:start}.demoChat{background:#07120f;border:1px solid var(--line);border-radius:20px;overflow:hidden}.demoChatHead{padding:16px 18px;border-bottom:1px solid var(--line);display:flex;align-items:center;justify-content:space-between;gap:12px}.demoMsgs{padding:18px;min-height:330px;display:flex;flex-direction:column;gap:12px}.bubble{max-width:86%;padding:12px 14px;border-radius:16px;font-size:14px}.bubble.user{align-self:flex-end;background:var(--accent);color:#06120e;border-bottom-right-radius:5px}.bubble.agent{align-self:flex-start;background:var(--panel2);border:1px solid var(--line);border-bottom-left-radius:5px}.demoPrompts{display:flex;gap:8px;flex-wrap:wrap;padding:0 18px 18px}.demoPrompt{border:1px solid var(--line);background:var(--panel);color:var(--text);border-radius:999px;padding:8px 11px;font:inherit;font-size:12px;cursor:pointer}.demoPrompt:hover{border-color:var(--accent)}.stageRow{display:grid;grid-template-columns:repeat(3,1fr);gap:10px;margin-top:16px}.stage{padding:15px;border:1px solid var(--line);border-radius:15px;background:var(--panel)}.stage strong{display:block;margin-bottom:4px}.stage.live{border-color:var(--warn)}.featureGrid{display:grid;grid-template-columns:repeat(2,1fr);gap:12px}.feature{padding:16px;border:1px solid var(--line);border-radius:16px;background:rgba(7,18,15,.6)}
+@media(max-width:780px){.demoShell,.stageRow,.featureGrid{grid-template-columns:1fr}{.hero{grid-template-columns:1fr;padding-top:42px}.hero h1{letter-spacing:-2.5px}.grid3,.metrics,.two{grid-template-columns:1fr}.navlinks a:not(.keep){display:none}.formRow{flex-direction:column}.dashHead{align-items:flex-start;gap:14px;flex-direction:column}.footerin{flex-direction:column}.metric b{font-size:25px}.cando{grid-template-columns:1fr}}
 `;
 
 function esc(v:string){return v.replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;","\"":"&quot;","'":"&#39;"}[c]||c));}
-function layout(title:string,body:string){return `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="description" content="AgentCart checks whether AI assistants can understand your business, helps you fix what is in the way, and shows whether AI is sending you customers."><title>${esc(title)} · AgentCart</title><style>${css}</style></head><body><div class="wrap"><nav class="nav"><a class="brand" href="/">Agent<span>Cart</span></a><div class="navlinks"><a href="/#scanner">Free check</a><a href="/dashboard?demo=1">Demo</a><a class="keep" href="/setup">Setup</a></div></nav></div>${body}<footer class="footer"><div class="wrap footerin"><div>© ${new Date().getFullYear()} AgentCart · AI commerce attribution & readiness.</div><div><a href="/privacy">Privacy</a> · <a href="/terms">Terms</a></div></div></footer></body></html>`;}
+function layout(title:string,body:string){return `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="description" content="AgentCart checks whether AI assistants can understand your business, helps you fix what is in the way, and shows whether AI is sending you customers."><title>${esc(title)} · AgentCart</title><style>${css}</style></head><body><div class="wrap"><nav class="nav"><a class="brand" href="/">Agent<span>Cart</span></a><div class="navlinks"><a href="/#scanner">Free check</a><a href="/dashboard?demo=1">Dashboard demo</a><a href="/demo/sponsored-agent">Sponsored Agent demo</a><a class="keep" href="/setup">Setup</a></div></nav></div>${body}<footer class="footer"><div class="wrap footerin"><div>© ${new Date().getFullYear()} AgentCart · AI commerce attribution & readiness.</div><div><a href="/privacy">Privacy</a> · <a href="/terms">Terms</a></div></div></footer></body></html>`;}
 
 export function homePage(){return layout("Make your business ready for AI customers",`<main><div class="wrap">
 <section class="hero"><div>
@@ -63,6 +64,13 @@ export function homePage(){return layout("Make your business ready for AI custom
   <h2>See whether AI is actually sending you customers</h2>
   <p class="muted">Once your Shopify store is connected, AgentCart records visits and orders that arrive from identifiable AI assistants &mdash; ChatGPT, Claude, Gemini, Perplexity, Microsoft Copilot and Meta AI. Where a referral cannot be identified, we say so rather than guessing.</p>
   <div class="formRow"><a class="btn" href="/dashboard?demo=1">See the demo dashboard</a></div>
+</div></section>
+
+<section class="section"><div class="card">
+  <div class="eyebrow">Emerging AI advertising</div>
+  <h2>See what a Sponsored Agent could look like</h2>
+  <p class="muted">AgentReady can prepare the business knowledge, actions, testing and measurement behind a conversational sales agent now. Where a provider channel is not yet generally available, we can still demonstrate the experience and get the business technically ready.</p>
+  <div class="formRow"><a class="btn primary" href="/demo/sponsored-agent">Try the Sponsored Agent demo</a></div>
 </div></section>
 
 <section id="scanner" class="section"><div class="card">
@@ -426,6 +434,96 @@ export function aiProfilePage(profile:any,slug:string){
       </tbody></table>
     </div>
   </div></main>`);
+}
+
+
+export function sponsoredAgentDemoPage(){
+  return layout("Sponsored Agent demo",`<main><div class="wrap">
+    <section class="hero" style="padding-bottom:30px"><div>
+      <div class="eyebrow">Concept demo · not a live provider integration</div>
+      <h1 style="font-size:clamp(42px,6vw,68px)">Your business could have its own AI salesperson.</h1>
+      <p>A Sponsored Agent is a conversational representative for a business inside an AI advertising experience. Instead of an advert ending at a click, the customer can ask questions, explore products or services, understand policies and move toward a real business action.</p>
+      <div class="formRow"><a class="btn primary" href="#demo-chat">Try the demo conversation</a><a class="btn" href="/#scanner">Check your business</a></div>
+      <p class="muted" style="font-size:13px">This page demonstrates the AgentReady product concept. It does not create, activate or claim access to a live OpenAI Sponsored Agent.</p>
+    </div>
+    <div class="heroCard">
+      <span class="chip">Demo → Ready → Live</span>
+      <div class="stageRow">
+        <div class="stage"><strong>1 · DEMO</strong><span class="muted">Experience the conversation and test the sales journey now.</span></div>
+        <div class="stage"><strong>2 · READY</strong><span class="muted">Prepare business facts, actions, safety checks and measurement.</span></div>
+        <div class="stage live"><strong>3 · LIVE</strong><span class="muted">Connect the real provider channel only when that merchant has supported access.</span></div>
+      </div>
+    </div></section>
+
+    <section id="demo-chat" class="section" style="padding-top:24px">
+      <div class="demoShell">
+        <div>
+          <div class="card">
+            <div class="eyebrow">Why a business would want this</div>
+            <h2 style="font-size:30px">Turn an advert into a conversation.</h2>
+            <p class="muted">A normal advert has to guess what the customer wants to know. A business agent can answer the next question, use current business information and guide the customer to the right product, quote, booking or checkout handoff.</p>
+            <div class="featureGrid">
+              <div class="feature"><b>Answer real questions</b><div class="muted">Products, services, compatibility, policies and delivery.</div></div>
+              <div class="feature"><b>Use live business facts</b><div class="muted">Price and availability where an authorised source exposes them.</div></div>
+              <div class="feature"><b>Take the next step</b><div class="muted">Quote, contact, booking, cart, checkout or human handoff.</div></div>
+              <div class="feature"><b>Stay on brand</b><div class="muted">Merchant-approved identity, tone, scope and escalation rules.</div></div>
+              <div class="feature"><b>Test before customers see it</b><div class="muted">Run buyer scenarios and catch wrong answers or broken actions.</div></div>
+              <div class="feature"><b>Measure outcomes</b><div class="muted">Link signed handoffs to leads, bookings and orders where evidence exists.</div></div>
+            </div>
+          </div>
+        </div>
+
+        <div class="demoChat" aria-label="Simulated Sponsored Agent conversation">
+          <div class="demoChatHead">
+            <div><b>Northstar Outdoors</b><div class="muted" style="font-size:12px">AI sales agent · simulated</div></div>
+            <span class="status">DEMO MODE</span>
+          </div>
+          <div class="demoMsgs" id="sponsoredDemoMessages" aria-live="polite">
+            <div class="bubble agent"><b>Northstar AI</b><br>Hi — tell me what you need and I can help you find the right outdoor gear using Northstar's catalogue, prices and policies.</div>
+          </div>
+          <div class="demoPrompts">
+            <button class="demoPrompt" type="button" data-demo="shoes">Waterproof shoes under £150</button>
+            <button class="demoPrompt" type="button" data-demo="friday">Can I get them by Friday?</button>
+            <button class="demoPrompt" type="button" data-demo="returns">What if they don't fit?</button>
+            <button class="demoPrompt" type="button" data-demo="checkout">Take me to checkout</button>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section class="section"><div class="grid3">
+      <div class="card"><span class="chip">WHAT AGENTREADY BUILDS</span><h3>The intelligence underneath</h3><p class="muted">Verified business facts, product/service knowledge, allowed actions, escalation rules, testing, monitoring and attribution. The provider channel should be an adapter over that foundation.</p></div>
+      <div class="card"><span class="chip">WHAT WE CAN DEMO</span><h3>The customer experience</h3><p class="muted">Conversation, product discovery, policy questions, safe handoffs, failure handling and measurement can be demonstrated before a provider grants live channel access.</p></div>
+      <div class="card"><span class="chip">WHAT WE WAIT FOR</span><h3>Provider activation</h3><p class="muted">If a native Sponsored Agent programme is invite-only, region-limited or not generally available, AgentReady marks it as waiting on the provider rather than pretending it is live.</p></div>
+    </div></section>
+
+    <section class="section"><div class="card">
+      <div class="eyebrow">What happens when access opens</div>
+      <h2>We should not have to rebuild the agent.</h2>
+      <p class="muted">AgentReady's goal is to prepare one tested business agent and then package it for supported channels. When a legitimate provider integration becomes available, the live adapter should reuse the same approved business facts, actions, tests and outcome measurement that were already proven in demo/readiness mode.</p>
+      <div class="finding"><span class="dot good"></span><div><b>Business Brain ready</b><div class="muted">Products, services, policies, locations and approved facts.</div></div><div>AgentReady</div></div>
+      <div class="finding"><span class="dot good"></span><div><b>Sales behaviour tested</b><div class="muted">Buyer questions, factual accuracy, handoffs and failure scenarios.</div></div><div>AgentReady</div></div>
+      <div class="finding"><span class="dot good"></span><div><b>Measurement prepared</b><div class="muted">Signed journeys and downstream outcome evidence where supported.</div></div><div>AgentReady</div></div>
+      <div class="finding"><span class="dot warn"></span><div><b>Native provider activation</b><div class="muted">Only becomes Live when the external provider offers a legitimate supported path for that merchant.</div></div><div>Provider</div></div>
+    </div></section>
+  </div></main>
+  <script>
+  (()=> {
+    const box=document.querySelector('#sponsoredDemoMessages');
+    if(!box)return;
+    const replies={
+      shoes:{q:'I need waterproof shoes under £150.',a:'The Trail Runner GTX is £129 and is listed as in stock in this demo catalogue. It is waterproof and designed for mixed trail use. Would you like delivery information or the product page?'},
+      friday:{q:'Can I get them by Friday?',a:'I can only promise delivery if the business has verified delivery information for your location. In this demo, I would ask for your delivery area, check the merchant\'s current delivery rules, and avoid inventing a date.'},
+      returns:{q:'What if they don\'t fit?',a:'Northstar\'s demo returns policy allows unworn footwear to be returned within 30 days. A live AgentReady agent would answer from the merchant\'s approved policy source and show the relevant policy link.'},
+      checkout:{q:'Take me to checkout.',a:'I can hand you to Northstar\'s real checkout, but I do not pretend the Sponsored Agent itself has completed a purchase. In a live setup, AgentReady would create a signed handoff so the resulting order can be attributed when the merchant platform provides evidence.'}
+    };
+    document.querySelectorAll('.demoPrompt').forEach(btn=>btn.addEventListener('click',()=>{
+      const r=replies[btn.dataset.demo];if(!r)return;
+      box.insertAdjacentHTML('beforeend','<div class="bubble user">'+r.q+'</div><div class="bubble agent"><b>Northstar AI</b><br>'+r.a+'</div>');
+      box.scrollTop=box.scrollHeight;
+    }));
+  })();
+  </script>`);
 }
 
 export function errorPage(title:string,message:string,ctaHref="/",ctaLabel="Back to AgentCart"){
