@@ -56,6 +56,49 @@ It is:
 13. **Provider facts expire.** Sponsored Agent availability, ads APIs, supported actions and platform capabilities belong in a versioned provider registry with verified dates.
 14. **Phone-first merchant UX.** The owner should be able to understand and control the agent from a small mobile screen.
 15. **Build-first is not production proof.** Green tests do not make a provider integration live.
+16. **Unavailable channels still get a truthful skeleton.** If an emerging provider capability is not generally available, build the business logic, provider boundary, readiness checks and a clearly labelled demo/sandbox where enough is known to do so safely. Never present a demo as provider-live.
+
+## Demo -> Ready -> Live delivery model
+
+Emerging channels must use three distinct states:
+
+### Demo
+
+AgentReady may simulate the customer experience using its own Business Brain, Sales Agent, safe actions and outcome instrumentation.
+
+A demo must:
+
+- be visibly labelled as simulated;
+- avoid provider logos/branding that would imply approval unless permitted;
+- use test/demo business data or clearly identified merchant preview data;
+- never claim native provider distribution;
+- never submit a real purchase unless an explicit test environment supports it;
+- exercise as much of the real AgentReady stack as possible so the demo is not a disposable mock.
+
+### Ready
+
+The merchant's real business configuration is prepared and tested for the provider/channel as far as AgentReady can legitimately verify.
+
+Ready can include:
+
+- approved business facts;
+- provider package/compiler output;
+- action/tool schemas;
+- conversation regression tests;
+- factual/policy guardrails;
+- measurement hooks;
+- channel eligibility/readiness diagnostics;
+- provider-specific missing requirements.
+
+"Ready" never means provider-approved.
+
+### Live
+
+Only use Live when the external provider has actually activated a supported integration for that merchant and AgentReady has verified the channel.
+
+The dashboard must never collapse Demo, Ready and Live into one boolean.
+
+This pattern should apply not only to OpenAI Sponsored Agents but to future Gemini, Meta, marketplace, commerce or other agent distribution channels.
 
 ---
 
@@ -513,6 +556,25 @@ Add an **AI Sales** dashboard area showing:
 
 Turn the Business AI Agent into a portable representative that can be exposed through supported conversational channels without tying AgentReady to a single provider.
 
+## 20.0 Demo and skeleton mode
+
+Before a provider-native channel is live, AgentReady should still be able to demonstrate the end-to-end customer experience using the real Business Brain, Sales Agent, safe handoffs, test scenarios and outcome instrumentation.
+
+The first public example is:
+
+- `GET /demo/sponsored-agent`
+- clearly labelled **Concept demo / Demo Mode**;
+- explains what a Sponsored Agent is;
+- explains why a merchant would want one;
+- shows the capabilities AgentReady intends to prepare;
+- provides a simulated buyer conversation;
+- distinguishes what AgentReady can build now from the provider activation step;
+- shows the **Demo -> Ready -> Live** lifecycle.
+
+The demo is a product/sales surface and an implementation reference. It must not become a second disconnected agent implementation.
+
+Later, the same pattern can be generated per merchant so an owner can preview "what my agent would look like" using their approved facts before any external channel activation.
+
 ## Current OpenAI constraint
 
 As of 2026-09-18, OpenAI Sponsored Agents are a **limited alpha for selected advertisers**.
@@ -637,6 +699,8 @@ Feed channel reliability into AgentPulse.
 
 ## 20.6 Phase 20 definition of done
 
+- [x] Public Sponsored Agent concept demo exists and explicitly identifies itself as simulated.
+- [ ] Merchant-specific Sponsored Agent preview can be generated from the active Business Brain without pretending the provider is live.
 - [ ] Provider-independent channel interface exists.
 - [ ] AgentReady hosted channel works without any third-party eligibility.
 - [ ] OpenAI adapter reports current eligibility/readiness honestly.
@@ -1076,6 +1140,7 @@ Code completion is not enough.
 
 Before calling Phases 18–21 production verified:
 
+0. Verify every emerging-channel demo continues to label Demo, Ready and Live distinctly and never implies provider activation.
 1. Finish the existing Phase 13–17 production verification and launch gate.
 2. Connect one real development merchant.
 3. Publish one Business Brain from authoritative store data.
