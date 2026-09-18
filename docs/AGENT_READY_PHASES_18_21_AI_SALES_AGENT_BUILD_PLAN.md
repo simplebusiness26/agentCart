@@ -1086,6 +1086,22 @@ Roadmap rule:
 
 No future AgentReady release should be described as scanner-complete while the maintained benchmark matrix contains a useful capability in `planned` state.
 
+## Mandatory analytics-superset gate
+
+Peec AI is the current minimum analytics benchmark.
+
+The detailed benchmark and implementation plan lives in:
+
+- `docs/PEEC_ANALYTICS_SUPERSET_AND_QUERY_FANOUTS_BUILD_PLAN.md`
+
+Roadmap rule:
+
+- AgentReady must match or exceed legitimate Peec-class analytics capabilities including visibility, position, sentiment, share of voice, prompt tracking, source/citation intelligence, query fanouts, chat features, crawl insights, brand perception, shopping analytics and referral/conversion reporting;
+- observed provider fanouts must remain separate from AgentReady-generated synthetic planning fanouts;
+- analytics parity is not enough: every actionable gap should connect to a remediation/execution path and a retest;
+- Phases 25–29 extend the roadmap with Visibility Analytics v2, Query Fanouts, Crawl Insights, Perception, AI Shopping and Referral/Action analytics;
+- no release should be called **AI Analytics Superset** while a legitimate Peec benchmark capability remains `planned`.
+
 ---
 
 # Automated test requirements
