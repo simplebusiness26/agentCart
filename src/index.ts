@@ -5,7 +5,7 @@ import { ShopifyScopeError, getBusinessProfile, getLastSync, syncConnectedStore 
 import { buildProfile, ensureProfile, getActions, getCatalogView, getItemView, getPolicies, getProfileMeta, resolveSlug, searchCatalogView, setProfileActive } from "./ailayer/service";
 import { handleMcp } from "./ailayer/mcp";
 import { buildAgentsMd } from "./ailayer/agentsmd";
-import { ApprovalRequiredError, WriteGuardError, applyAllAutomatic, applyFix, approveFix, contextFor, listFixes, proposeFixes, undoFix } from "./fixes";
+import { ApprovalRequiredError, WriteGuardError, applyAllAutomatic, applyFix, approveFix, contextFor, fixByKey, fixesForPlatform, listFixes, missingScopes, proposeFixes, undoFix } from "./fixes";
 import { connectionHealth, recentOps, recordOps } from "./ops";
 import { linkShopToBusiness, monitoringHistory, runMonitorPass } from "./monitor";
 import { classifyOrderSource, getJourney, recordOrderSource, revenueByTier, agenticOrders, startJourney, verifyJourneyId } from "./attribution";
@@ -22,9 +22,31 @@ import { buildOutcome } from "./outcome";
 import { consumeOAuthState, countCustomerEvents, deleteShop, getDashboardWindows, getShop, insertEvent, logComplianceRequest, putOAuthState, rateLimit, redactCustomer, saveOrder, saveShop, setIngestToken, updatePixelId } from "./db";
 import { createWebPixel, encryptToken, exchangeCode, installUrl, normalizeOrderId, pixelSettings, randomState, parseSession, safeCompare, sessionCookie, validShop, verifyOAuthHmac, verifyWebhookHmac, webPixelUpdate } from "./shopify";
 import { agentReadyPage, aiProfilePage, dashboardPage, errorPage, homePage, privacyPage, setupPage, termsPage } from "./ui";
+import { ensureHostedJourneyTargets, reliabilitySummary, runAgentPulsePass, runPulseTarget } from "./agentpulse";
+import { factByKey, queueStaleRegistryFacts, registrySnapshot, STANDARDS_REGISTRY_VERSION } from "./standards/registry";
+import { mcpHttpStatus } from "./mcp/compat";
+import { addQuery, aeoReport, listCompetitors, listQueries, recordManualObservation, setCompetitors, suggestQueries } from "./aeo";
+import { observableComparison, whyLosingReport } from "./aeo/competitive";
+import { algoliaAudit, runAuthorizedAlgoliaAudit, saveAlgoliaConnection } from "./algolia";
+import { PLATFORM_REGISTRY } from "./platform/registry";
+import { completeExperiment, createExperiment, outcomeProofSummary, recordJourneyEvidence, recordOutcomeEvent } from "./outcomes/proof";
 
 const html=(body:string,status=200,headers:HeadersInit={})=>new Response(body,{status,headers:{"content-type":"text/html; charset=utf-8","x-content-type-options":"nosniff","referrer-policy":"strict-origin-when-cross-origin","permissions-policy":"camera=(), microphone=(), geolocation=()","content-security-policy":"default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; connect-src 'self'; form-action 'self'; frame-ancestors 'none'; base-uri 'none'",...headers}});
 const json=(data:unknown,status=200,headers:HeadersInit={})=>new Response(JSON.stringify(data),{status,headers:{"content-type":"application/json; charset=utf-8","cache-control":"no-store",...headers}});
+
+function mcpOriginAllowed(request:Request,env:Env){
+  const origin=request.headers.get("origin");
+  if(!origin)return true;
+  try{return new URL(origin).origin===new URL(env.APP_URL).origin;}catch{return false;}
+}
+
+const mcpContext=(request:Request)=>({
+  headerVersion:request.headers.get("mcp-protocol-version"),
+  methodHeader:request.headers.get("mcp-method"),
+  nameHeader:request.headers.get("mcp-name")
+});
+const modernMcpRequest=(request:Request,body:any)=>!!request.headers.get("mcp-protocol-version")||
+  !!body?.params?._meta||body?.method==="server/discover";
 
 export function aiSource(referrer?:string){
   if(!referrer)return {agent:"Direct / unknown",host:""};
@@ -170,10 +192,10 @@ async function route(request:Request,env:Env):Promise<Response>{
     if(!(await verifyOAuthHmac(url,env.SHOPIFY_API_SECRET)))return html(errorPage("That Shopify link could not be verified","AgentCart could not confirm the response came from Shopify, so it was rejected. Start the connection again.","/","Back to AgentCart"),401);
     if(!(await consumeOAuthState(env,state,shop)))return html(errorPage("That connection link has expired","Install links are valid for ten minutes and can only be used once. Start the connection again.","/","Back to AgentCart"),401);
     try{
-      const token=await exchangeCode(env,shop,code);
+      const {token,scope}=await exchangeCode(env,shop,code);
       const encrypted=await encryptToken(token,env.TOKEN_ENCRYPTION_KEY);
       const issuedAt=Date.now();
-      await saveShop(env,shop,encrypted,null,issuedAt);
+      await saveShop(env,shop,encrypted,null,issuedAt,scope);
       // Pixel activation is deliberately non-fatal. The install has already committed by
       // this point, so throwing here would show a 500 to a merchant who is in fact
       // connected. Surface it as a banner and let them retry instead.
@@ -259,14 +281,34 @@ async function route(request:Request,env:Env):Promise<Response>{
   if(path==="/api/fixes"&&request.method==="GET"){
     const shop=await sessionShop(request,env);
     if(!shop)return json({error:"No connected Shopify session."},401);
-    const fixes=await listFixes(env,shop);
+    const rows=await listFixes(env,shop);
+    const evidenceRows=(await env.DB.prepare(`SELECT e.* FROM fix_evidence e JOIN fixes f ON f.id=e.fix_id
+      WHERE f.shop_domain=?`).bind(shop).all<any>()).results;
+    const evidenceByFix=new Map(evidenceRows.map(e=>[String(e.fix_id),e]));
+    // The stored preview is what the merchant is being asked to approve, so it travels with
+    // the row. Approving a change you cannot see is not approval.
+    const fixes:Record<string,unknown>[]=rows.map(f=>{
+      let parsed:any={};
+      try{parsed=JSON.parse(String(f.proposed_change_json||"{}"));}
+      catch{/* a row written by an older build simply shows no preview */}
+      const definition=fixByKey(String(parsed?.key||""));
+      return {...f,before:parsed?.preview?.before??null,after:parsed?.preview?.after??null,
+        owner:definition?.owner||"unknown",officialDocs:definition?.officialDocs||[],evidence:evidenceByFix.get(String(f.id))||null,
+        reversible:!!definition?.undo};
+    });
+    const granted=((await getShop(env,shop))?.granted_scopes||"").split(",").map(s=>s.trim()).filter(Boolean);
     // Grouped the way the UI presents them: what we can do, what needs you, what we cannot.
     return json({
       automatic:fixes.filter(f=>f.fix_type!=="approval_required"&&f.status==="proposed"),
       needsApproval:fixes.filter(f=>f.fix_type==="approval_required"&&f.status==="proposed"),
       inProgress:fixes.filter(f=>f.status==="approved"||f.status==="applying"||f.status==="applied"),
       done:fixes.filter(f=>f.status==="verified"),
-      failed:fixes.filter(f=>f.status==="failed")
+      failed:fixes.filter(f=>f.status==="failed"),
+      undone:fixes.filter(f=>f.status==="undone"),
+      unavailable:fixesForPlatform("shopify").map(def=>({key:def.key,title:def.title,
+        missingScopes:missingScopes(def,granted)})).filter(f=>f.missingScopes.length)
+        .map(f=>({...f,needsReauthorization:true,
+          summary:`${f.title}: your Shopify connection does not grant ${f.missingScopes.join(", ")}.`}))
     });
   }
 
@@ -316,19 +358,120 @@ async function route(request:Request,env:Env):Promise<Response>{
     return json({history:await monitoringHistory(env,shop)});
   }
 
+  // AgentPulse runs a real, read-only MCP journey against the merchant's hosted AI layer.
+  // It never stores the response body or a credential: only status, timings, errors and a
+  // fingerprint of the advertised tool schemas are retained.
+  if(request.method==="GET"&&path==="/api/agentpulse"){
+    const shop=await sessionShop(request,env);
+    if(!shop)return json({error:"No connected Shopify session."},401);
+    const slug=await ensureProfile(env,shop);
+    const targets=await ensureHostedJourneyTargets(env,shop,env.APP_URL,slug);
+    return json({targets:targets.map(target=>({id:target.id,label:target.label,journey:target.journey})),
+      reliability:await reliabilitySummary(env,shop)});
+  }
+
+  if(request.method==="GET"&&path==="/api/visibility"){
+    const shop=await sessionShop(request,env);
+    if(!shop)return json({error:"No connected Shopify session."},401);
+    return json({report:await aeoReport(env,shop),queries:await listQueries(env,shop),
+      competitors:await listCompetitors(env,shop),comparison:await observableComparison(env,shop),
+      whyLosing:await whyLosingReport(env,shop)});
+  }
+
+  if(request.method==="POST"&&path==="/api/visibility/configure"){
+    const shop=await sessionShop(request,env);
+    if(!shop)return json({error:"No connected Shopify session."},401);
+    const body=await request.json<{category?:string;location?:string;productsOrServices?:string[];competitors?:Array<{name:string;domain?:string}>}>()
+      .catch(()=>({} as {category?:string;location?:string;productsOrServices?:string[];competitors?:Array<{name:string;domain?:string}>}));
+    const existing=await listQueries(env,shop),created=[] as string[];
+    for(const candidate of suggestQueries(String(body.category||""),body.location,body.productsOrServices||[])){
+      if(existing.some(q=>q.query.toLowerCase()===candidate.query.toLowerCase()))continue;
+      created.push(await addQuery(env,shop,candidate.intent,candidate.query,String(body.category||"")||undefined));
+    }
+    if(Array.isArray(body.competitors))await setCompetitors(env,shop,body.competitors
+      .filter(c=>c&&String(c.name||"").trim()).slice(0,10).map(c=>({name:String(c.name).slice(0,160),domain:c.domain?String(c.domain).toLowerCase():undefined})));
+    return json({created,queries:await listQueries(env,shop),competitors:await listCompetitors(env,shop)});
+  }
+
+  if(request.method==="POST"&&path==="/api/visibility/manual"){
+    const shop=await sessionShop(request,env);
+    if(!shop)return json({error:"No connected Shopify session."},401);
+    const body=await request.json<Record<string,unknown>>().catch(()=>({} as Record<string,unknown>));
+    try{
+      const runId=await recordManualObservation(env,{shop,provider:String(body.provider||"manual"),
+        model:body.model?String(body.model):undefined,locale:body.locale?String(body.locale):undefined,
+        queryId:String(body.queryId||""),subject:String(body.subject||""),isCompetitor:!!body.isCompetitor,
+        mentioned:!!body.mentioned,cited:!!body.cited,recommended:!!body.recommended,selected:!!body.selected,
+        taskCompleted:!!body.taskCompleted,attributed:!!body.attributed,
+        position:body.position==null?null:Number(body.position),evidence:String(body.evidence||""),
+        evidenceUrl:body.evidenceUrl?String(body.evidenceUrl):undefined,
+        context:body.context&&typeof body.context==="object"?body.context as Record<string,unknown>:undefined});
+      return json({runId,report:await aeoReport(env,shop)},201);
+    }catch(e){return json({error:e instanceof Error?e.message:"Could not record visibility evidence."},400);}
+  }
+
+  if(request.method==="GET"&&path==="/api/platforms"){
+    return json({platforms:PLATFORM_REGISTRY,
+      note:"Detection, read access and authorised write support are separate. A detected platform is never treated as permission to change it."});
+  }
+
+  if(request.method==="GET"&&path==="/api/algolia"){
+    const shop=await sessionShop(request,env);
+    if(!shop)return json({error:"No connected Shopify session."},401);
+    return json(await algoliaAudit(env,shop));
+  }
+
+  if(request.method==="POST"&&path==="/api/algolia"){
+    const shop=await sessionShop(request,env);
+    if(!shop)return json({error:"No connected Shopify session."},401);
+    const body=await request.json<{applicationId?:string;indexNames?:unknown;publicMcpUrl?:string}>().catch(()=>({}));
+    try{return json(await saveAlgoliaConnection(env,shop,body),201);}
+    catch(e){return json({error:e instanceof Error?e.message:"Could not save Algolia public metadata."},400);}
+  }
+
+  if(request.method==="POST"&&path==="/api/algolia/audit"){
+    const shop=await sessionShop(request,env);if(!shop)return json({error:"No connected Shopify session."},401);
+    const body=await request.json<{applicationId?:string;indexName?:string;searchKey?:string;query?:string;filters?:string}>()
+      .catch(()=>({} as {applicationId?:string;indexName?:string;searchKey?:string;query?:string;filters?:string}));
+    try{return json(await runAuthorizedAlgoliaAudit(env,shop,{applicationId:String(body.applicationId||""),
+      indexName:String(body.indexName||""),searchKey:String(body.searchKey||""),query:String(body.query||""),filters:body.filters}));}
+    catch(e){return json({error:e instanceof Error?e.message:"Algolia audit failed."},400);}
+  }
+
+  if(request.method==="POST"&&path==="/api/agentpulse/run"){
+    const shop=await sessionShop(request,env);
+    if(!shop)return json({error:"No connected Shopify session."},401);
+    const gate=await rateLimit(env,"agentpulse",shop,4,300000).catch(()=>({ok:true,retryAfter:0}));
+    if(!gate.ok)return json({error:"AgentPulse was run very recently. Try again shortly."},429,
+      {"retry-after":String(gate.retryAfter)});
+    const slug=await ensureProfile(env,shop);
+    const targets=await ensureHostedJourneyTargets(env,shop,env.APP_URL,slug);
+    if(!targets.length)return json({error:"Could not create synthetic monitor targets."},500);
+    const runs=[];
+    for(const target of targets)runs.push(await runPulseTarget(env,target.id));
+    return json({run:runs[0],runs,reliability:await reliabilitySummary(env,shop)});
+  }
+
   // Starts an AgentCart-controlled commerce journey so a later order can be joined back to the
   // agent that produced it, even when the storefront pixel never runs.
   if(path==="/api/journey"&&request.method==="POST"){
     const gate=await rateLimit(env,"journey",request.headers.get("cf-connecting-ip")||"unknown",120,60000)
       .catch(()=>({ok:true,retryAfter:0}));
     if(!gate.ok)return json({error:"Rate limit exceeded"},429,{"retry-after":String(gate.retryAfter)});
-    const body=await request.json<{shop?:string;provider?:string;intent?:string;targetUrl?:string;itemId?:string}>()
+    const body=await request.json<{shop?:string;provider?:string;intent?:string;targetUrl?:string;itemId?:string;
+      discoveryRunId?:string;pulseRunId?:string;handoffType?:string}>()
       .catch(()=>({} as any));
     const shop=String(body.shop||"").toLowerCase();
     if(!validShop(shop))return json({error:"A valid store domain is required."},400);
     if(!(await getShop(env,shop)))return json({error:"Unknown store"},404);
     const provider=String(body.provider||"unknown").toLowerCase();
-    const journeyId=await startJourney(env,shop,provider,{intent:body.intent,targetUrl:body.targetUrl,itemId:body.itemId});
+    let targetUrl:string|undefined;
+    if(body.targetUrl){try{const parsed=new URL(body.targetUrl);if(parsed.protocol!=="https:")throw new Error();targetUrl=parsed.toString().slice(0,1000);}
+      catch{return json({error:"A handoff target must be a valid HTTPS URL."},400);}}
+    const journeyId=await startJourney(env,shop,provider,{intent:body.intent?.slice(0,200),targetUrl,
+      itemId:body.itemId?.slice(0,200),discoveryRunId:body.discoveryRunId,pulseRunId:body.pulseRunId,
+      handoffType:body.handoffType?.slice(0,80)});
+    await recordJourneyEvidence(env,journeyId);
     return json({journeyId,
       // The merchant's platform must carry this through checkout for the join to work.
       attributeName:"agentcart_journey",
@@ -342,6 +485,44 @@ async function route(request:Request,env:Env):Promise<Response>{
     return json({tiers:await revenueByTier(env,shop,from,now),
       agents:await agenticOrders(env,shop,from,now),
       note:"Evidence tiers are reported separately and never summed. Verified revenue comes from cryptographically verified platform order records; reported revenue comes from the storefront pixel."});
+  }
+
+  if(request.method==="POST"&&path==="/api/outcomes/lead"){
+    const gate=await rateLimit(env,"outcome_lead",request.headers.get("cf-connecting-ip")||"unknown",60,60000)
+      .catch(()=>({ok:true,retryAfter:0}));
+    if(!gate.ok)return json({error:"Rate limit exceeded"},429,{"retry-after":String(gate.retryAfter)});
+    const body=await request.json<{journeyId?:string;type?:string;externalReference?:string}>()
+      .catch(()=>({} as {journeyId?:string;type?:string;externalReference?:string}));
+    const journey=await getJourney(env,String(body.journeyId||""));
+    if(!journey)return json({error:"Unknown journey."},404);
+    const eventType=body.type==="booking"?"booking":body.type==="qualified_lead"?"qualified_lead":"enquiry";
+    try{await recordOutcomeEvent(env,{journeyId:String(body.journeyId),shop:String(journey.shop_domain),eventType,
+      evidenceTier:"reported",source:"merchant_lead_confirmation",externalReference:body.externalReference,
+      evidence:{capture:"data_minimised_no_contact_fields"}});return json({ok:true},202);}
+    catch(e){return json({error:e instanceof Error?e.message:"Could not record the outcome."},400);}
+  }
+
+  if(request.method==="GET"&&path==="/api/outcomes"){
+    const shop=await sessionShop(request,env);if(!shop)return json({error:"No connected Shopify session."},401);
+    return json(await outcomeProofSummary(env,shop));
+  }
+
+  if(request.method==="POST"&&path==="/api/outcomes/experiments"){
+    const shop=await sessionShop(request,env);if(!shop)return json({error:"No connected Shopify session."},401);
+    const body=await request.json<any>().catch(()=>({}));
+    try{return json({id:await createExperiment(env,shop,{hypothesis:String(body.hypothesis||""),population:String(body.population||""),
+      windowStartMs:Number(body.windowStartMs)||Date.now(),windowEndMs:body.windowEndMs==null?undefined:Number(body.windowEndMs),
+      changeDescription:String(body.changeDescription||""),metric:String(body.metric||""),
+      baselineValue:body.baselineValue==null?undefined:Number(body.baselineValue)})},201);}
+    catch(e){return json({error:e instanceof Error?e.message:"Could not create experiment."},400);}
+  }
+
+  if(request.method==="POST"&&path.startsWith("/api/outcomes/experiments/")&&path.endsWith("/complete")){
+    const shop=await sessionShop(request,env);if(!shop)return json({error:"No connected Shopify session."},401);
+    const id=decodeURIComponent(path.slice("/api/outcomes/experiments/".length,-"/complete".length));
+    const body=await request.json<any>().catch(()=>({}));
+    const result=await completeExperiment(env,shop,id,{resultValue:Number(body.resultValue),resultNote:String(body.resultNote||"")});
+    return result?json({experiment:result}):json({error:"No running experiment was found."},404);
   }
 
   // Provider compatibility: one place a merchant sees, per AI provider, whether it can discover
@@ -369,13 +550,19 @@ async function route(request:Request,env:Env):Promise<Response>{
     return json({
       providers:access.map(a=>{
         const definition=providerById(a.provider)!;
+        const fact=factByKey(`provider.${a.provider}`);
+        const stale=!!fact?.stale;
         return {...a,
-          region:regionAvailability(definition,typeof country==="string"?country.slice(0,2):undefined),
+          discovery:stale?"unknown":a.discovery,
+          agenticFetch:stale?"unknown":a.agenticFetch,
+          region:stale?"unknown":regionAvailability(definition,typeof country==="string"?country.slice(0,2):undefined),
           verifiedOn:definition.verifiedOn,
+          evidence:fact?.effectiveBasis||"unknown",stale,
           protocols:definition.protocols};
       }),
       channel:await getChannelCapabilities(env,shop),
       registryVerifiedOn:REGISTRY_VERIFIED_ON,
+      registryVersion:STANDARDS_REGISTRY_VERSION,
       note:"Blocking an AI training crawler is a legitimate choice and never reduces your score. Where a provider documents that its agent may fetch a page regardless of robots.txt, AgentCart reports your setting as a stated preference rather than claiming the agent is blocked."
     });
   }
@@ -444,18 +631,30 @@ async function route(request:Request,env:Env):Promise<Response>{
   // AgentCart as a capability agents can call. Public, read-only, rate limited, and structurally
   // unable to mutate a merchant's store: none of these tools touch an authenticated path.
   if(path==="/api/mcp"&&request.method==="POST"){
+    if(!mcpOriginAllowed(request,env))return json({jsonrpc:"2.0",id:null,
+      error:{code:-32000,message:"Origin is not allowed."}},403);
     const gate=await rateLimit(env,"publicmcp",request.headers.get("cf-connecting-ip")||"unknown",30,60000)
       .catch(()=>({ok:true,retryAfter:0}));
     if(!gate.ok)return json({jsonrpc:"2.0",id:null,error:{code:-32000,message:"Rate limit exceeded."}},429,
       {"retry-after":String(gate.retryAfter)});
     let body:any={};
     try{body=await request.json();}catch{return json({jsonrpc:"2.0",id:null,error:{code:-32700,message:"Invalid JSON."}},400);}
-    const result=await handlePublicMcp(env,body);
-    return result?json(result,200,{"access-control-allow-origin":"*"}):new Response(null,{status:204});
+    const result=await handlePublicMcp(env,body,mcpContext(request));
+    return result?json(result,mcpHttpStatus(result,modernMcpRequest(request,body)),
+      {"access-control-allow-origin":new URL(env.APP_URL).origin}):new Response(null,{status:204});
   }
-  if(path==="/api/mcp"&&request.method==="OPTIONS")
+  if(path==="/api/mcp"&&request.method==="OPTIONS"){
+    if(!mcpOriginAllowed(request,env))return new Response(null,{status:403});
     return new Response(null,{status:204,headers:{"access-control-allow-origin":"*",
-      "access-control-allow-methods":"POST,OPTIONS","access-control-allow-headers":"content-type"}});
+      "access-control-allow-methods":"POST,OPTIONS",
+      "access-control-allow-headers":"content-type, accept, mcp-protocol-version, mcp-method, mcp-name"}});
+  }
+
+  if(request.method==="GET"&&path==="/api/standards/registry"){
+    const facts=registrySnapshot();
+    return json({version:STANDARDS_REGISTRY_VERSION,facts,
+      note:"Stale facts become unknown and are queued for verified-source review; they never become a merchant failure."});
+  }
 
   if(request.method==="GET"&&(path==="/agents.md"||path==="/.well-known/agents.md")){
     return new Response(agentCartAgentsMd(env.APP_URL),{status:200,
@@ -556,6 +755,9 @@ async function route(request:Request,env:Env):Promise<Response>{
           journeyId
         });
         await recordOrderSource(env,shop,orderId,source,journeyId);
+        if(journeyId)await recordOutcomeEvent(env,{journeyId,shop,eventType:"order",evidenceTier:source.tier,
+          source:"shopify_verified_webhook",externalReference:orderId,amount:Number.isFinite(total)?total:null,
+          currency:body.currency?String(body.currency):null,evidence:{agent:source.agent,channel:source.channel}});
       }
     }
     else if(topic==="customers/data_request"){
@@ -594,12 +796,15 @@ async function route(request:Request,env:Env):Promise<Response>{
 
     // MCP speaks JSON-RPC over POST on the profile root.
     if(!isHuman&&request.method==="POST"&&(!segments.length||segments[0]==="mcp")){
+      if(!mcpOriginAllowed(request,env))return json({jsonrpc:"2.0",id:null,
+        error:{code:-32000,message:"Origin is not allowed."}},403);
       const gate=await rateLimit(env,"ai",slug,240,60000).catch(()=>({ok:true,retryAfter:0}));
       if(!gate.ok)return json({error:"Rate limit exceeded"},429,{"retry-after":String(gate.retryAfter)});
       let body:any={};
       try{body=await request.json();}catch{return json({jsonrpc:"2.0",id:null,error:{code:-32700,message:"Invalid JSON."}},400);}
-      const result=await handleMcp(env,shop,slug,body);
-      return result?json(result):new Response(null,{status:204});
+      const result=await handleMcp(env,shop,slug,body,mcpContext(request));
+      return result?json(result,mcpHttpStatus(result,modernMcpRequest(request,body)))
+        :new Response(null,{status:204});
     }
 
     if(request.method!=="GET")return json({error:"Method not allowed"},405);
@@ -663,6 +868,11 @@ export default {
         const outcomes=await runMonitorPass(env);
         for(const o of outcomes)console.log(`monitor ${o.domain}: ${o.status} — ${o.detail}`);
       }catch(e){console.error("monitor pass failed",e);}
+      try{
+        const runs=await runAgentPulsePass(env);
+        for(const r of runs)console.log(`agentpulse ${r.targetId}: ${r.status} — ${r.latencyMs}ms`);
+      }catch(e){console.error("AgentPulse pass failed",e);}
+      try{await queueStaleRegistryFacts(env);}catch(e){console.error("registry review queue failed",e);}
     })());
   }
 };

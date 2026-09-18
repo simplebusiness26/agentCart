@@ -34,9 +34,13 @@ Work items 1–7 in order; the launch gate cannot run until they are done.
 
 5. **Deploy the Shopify app + Web Pixel extension**.
    - Run `npx shopify app deploy` while authenticated to the Shopify developer account.
-   - The app requests `read_products`, `write_pixels` and `read_customer_events` today.
-     `write_products` is additionally required for the product fixes; add it to
-     `shopify.app.toml` before deploying if you want those enabled.
+   - The app requests `read_products`, `write_products`, `write_pixels` and
+     `read_customer_events`. `write_products` is what the two product fixes need; it is
+     requested at install rather than added later, because a fix that needs a scope the
+     connection does not hold fails at apply time and the only remedy offered — reconnect —
+     asks for the same scopes again.
+   - Any store connected before this change must reconnect once. Until it does, the two
+     product fixes appear under "Needs a reconnection" instead of being offered.
 
 6. **Configure the monitoring schedule**.
    - `wrangler.toml` sets a daily cron. Cloudflare cron triggers activate on deploy;
@@ -122,19 +126,33 @@ whether the provider documents them as able to fetch regardless of `robots.txt`.
 the date it was verified against a primary source, and the dashboard shows that date to the merchant.
 
 These claims go stale. Providers rename crawlers, launch shopping agents in new countries, and change
-their documented robots behaviour. Re-check `docs/PROVIDER_RESEARCH.md` against the linked primary
-sources periodically and bump `REGISTRY_VERIFIED_ON` in `src/providers/registry.ts` when you do.
+their documented robots behaviour. AgentCart now turns stale facts into `unknown` and queues them in
+`standards_review_queue`; it never rewrites a fact from untrusted content. Re-check the named primary
+source, update the fact in `src/standards/registry.ts` (and crawler details in
+`src/providers/registry.ts` where relevant), then record the new verification date/version.
 
 A stale registry is worse than no registry, because it reports a confident answer that is wrong.
 
-## Optional: answer-engine visibility
+## Ongoing: verify AgentPulse against the deployed Worker
 
-The share-of-voice framework is built, but **no provider is wired to it**. Every adapter reports
-itself unsupported, and the report says so. Making it live requires a decision you have to make:
+Open a connected store and run `POST /api/agentpulse/run` once after deployment. Confirm the response
+contains seven journeys: MCP, discovery, price/availability, policies, quote/contact, booking handoff
+and checkout handoff. A business that does not offer an optional capability should show
+`unsupported`, not failed. The MCP pass must show a real
+`server/discover -> tools/list -> tools/call` journey against the store's public hosted MCP URL. The
+other journeys make one GET and never follow their handoff. The daily cron reruns due targets and
+records observed success, latency, drift and deduplicated incidents. Do not describe these as an SLA.
+
+## Optional: provider-API answer visibility
+
+The visibility framework, manual evidence workflow, observable competitor comparison and why-losing
+report are built. No paid provider API is configured, so provider adapters remain unsupported and
+the report says so. Controlled observations can be recorded as `manual`; they are never presented as
+provider-API evidence. Automating provider queries still requires a decision you have to make:
 
 1. Choose a data source for AI answer visibility. Every credible option is a paid API.
 2. Implement one adapter against the existing interface in `src/aeo/`.
-3. The vanity-query detection and the caveat text already work and should stay.
+3. Keep method/model/locale/context, vanity-query detection and the caveat text intact.
 
 Until then, this is deliberately empty rather than populated with an unsourced number.
 

@@ -83,7 +83,12 @@ export function extractSignals(html:string):PageSignals{
     contactForm:/<form\b[\s\S]{0,600}?(name=["'](email|message|enquiry|name)["']|type=["']email["'])/i.test(html),
     searchForm:/(type=["']search["']|name=["']q["']|role=["']search["'])/i.test(html),
     textLength:text.length,
-    bodyTextRatio:html.length?text.length/html.length:0
+    bodyTextRatio:html.length?text.length/html.length:0,
+    algoliaDetected:/algoliasearch|cdn\.jsdelivr\.net\/npm\/algoliasearch|instantsearch(?:\.js)?/i.test(html),
+    algoliaRecommendSignals:/@algolia\/recommend|recommendClient|relatedProducts|frequentlyBoughtTogether/i.test(html),
+    algoliaAnalyticsSignals:/search-insights|aa\(["'](?:clicked|converted|viewed)|clickedObjectIDs|convertedObjectIDs/i.test(html),
+    // Detect a dangerous configuration pattern, never the key value itself.
+    algoliaAdminKeyRisk:/ALGOLIA_ADMIN_API_KEY|algoliaAdminKey|adminApiKey/i.test(html)
   };
 }
 

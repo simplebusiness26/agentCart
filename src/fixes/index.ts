@@ -4,6 +4,8 @@ import type {Env} from "../types";
 import {publishAiLayer} from "./hosted";
 import {productAiMetafield,productSeoDescription} from "./shopify";
 import type {FixContext,FixDefinition,FixPreview,FixStatus} from "./types";
+import {assessSite} from "../agentready";
+import {saveScanRun} from "../agentready/store";
 
 export * from "./types";
 export const REGISTRY:FixDefinition[]=[publishAiLayer,productAiMetafield,productSeoDescription];
@@ -21,7 +23,12 @@ function fixId(nowMs:number){
 export async function contextFor(env:Env,shop:string):Promise<FixContext>{
   const row=await getShop(env,shop);
   if(!row)throw new Error("That store is not connected.");
-  return {env,shop,token:await decryptToken(row.encrypted_access_token,env.TOKEN_ENCRYPTION_KEY)};
+  return {env,shop,token:await decryptToken(row.encrypted_access_token,env.TOKEN_ENCRYPTION_KEY),
+    grantedScopes:(row.granted_scopes||"").split(",").map(s=>s.trim()).filter(Boolean)};
+}
+
+export function missingScopes(def:FixDefinition,granted:string[]){
+  return def.requiredScopes.filter(s=>!granted.includes(s));
 }
 
 async function setStatus(env:Env,id:string,status:FixStatus,fields:Record<string,unknown>={}){
@@ -30,10 +37,35 @@ async function setStatus(env:Env,id:string,status:FixStatus,fields:Record<string
   await env.DB.prepare(sql).bind(status,...cols.map(c=>fields[c]),id).run();
 }
 
+async function saveVerificationEvidence(env:Env,shop:string,fixId:string,detail:string,nowMs:number){
+  let scanRunId:string|null=null,scanStatus="not_linked",scanError:string|null=null;
+  const business=await env.DB.prepare("SELECT canonical_url FROM businesses WHERE connected_shop_domain=? LIMIT 1")
+    .bind(shop).first<{canonical_url:string|null}>();
+  if(business?.canonical_url){
+    try{const report=await assessSite(business.canonical_url);scanRunId=await saveScanRun(env,report,"monitor",nowMs);scanStatus="complete";}
+    catch(e){scanStatus="failed";scanError=(e instanceof Error?e.message:"Rescan failed").slice(0,500);}
+  }
+  await env.DB.prepare(`INSERT INTO fix_evidence(fix_id,verification_status,verification_detail,scan_run_id,scan_status,scan_error,recorded_ms)
+    VALUES(?,'verified',?,?,?,?,?) ON CONFLICT(fix_id) DO UPDATE SET verification_status=excluded.verification_status,
+    verification_detail=excluded.verification_detail,scan_run_id=excluded.scan_run_id,scan_status=excluded.scan_status,
+    scan_error=excluded.scan_error,recorded_ms=excluded.recorded_ms`)
+    .bind(fixId,detail.slice(0,500),scanRunId,scanStatus,scanError,nowMs).run();
+}
+
 export async function proposeFixes(env:Env,shop:string,platform:string,nowMs=Date.now()){
   const ctx=await contextFor(env,shop);
   const proposed:Array<Record<string,unknown>>=[];
   for(const def of fixesForPlatform(platform)){
+    // Withheld, not attempted. Offering a fix the connection cannot perform produces a failure
+    // whose only remedy -- reconnect -- asks for the very scopes that are already missing.
+    const missing=missingScopes(def,ctx.grantedScopes);
+    if(missing.length){
+      proposed.push({id:null,key:def.key,title:def.title,fixType:"unavailable",risk:def.risk,
+        owner:def.owner,officialDocs:def.officialDocs||[],
+        summary:`AgentCart cannot offer this yet. Your Shopify connection does not grant ${missing.join(", ")}.`,
+        needsReauthorization:true});
+      continue;
+    }
     let previews:FixPreview[]=[];
     try{previews=await def.preview(ctx);}
     catch(e){console.error(`preview failed for ${def.key}`,e);continue;}
@@ -45,6 +77,7 @@ export async function proposeFixes(env:Env,shop:string,platform:string,nowMs=Dat
         .bind(id,shop,def.findingKey,preview.targetId,def.platform,def.fixType,def.risk,
           preview.summary,JSON.stringify({key:def.key,preview}),JSON.stringify(preview.before),nowMs).run();
       proposed.push({id,key:def.key,title:def.title,fixType:def.fixType,risk:def.risk,
+        owner:def.owner,officialDocs:def.officialDocs||[],
         targetTitle:preview.targetTitle,summary:preview.summary,before:preview.before,after:preview.after});
     }
   }
@@ -112,7 +145,10 @@ export async function applyFix(env:Env,shop:string,id:string,nowMs=Date.now()){
   let check:{verified:boolean;detail:string};
   try{check=await def.verify(ctx,parsed.preview);}
   catch(e){check={verified:false,detail:e instanceof Error?e.message:"Verification failed."};}
-  if(check.verified)await setStatus(env,id,"verified",{verified_ms:nowMs,after_json:JSON.stringify(applied),error:null});
+  if(check.verified){
+    await setStatus(env,id,"verified",{verified_ms:nowMs,after_json:JSON.stringify(applied),error:null});
+    await saveVerificationEvidence(env,shop,id,check.detail,nowMs);
+  }
   else await setStatus(env,id,"failed",{error:`Applied, but could not be confirmed: ${check.detail}`.slice(0,500)});
   return await getFix(env,shop,id);
 }
@@ -152,7 +188,22 @@ export async function undoFix(env:Env,shop:string,id:string,nowMs=Date.now()){
   if(!def.undo)throw new Error(`"${def.title}" cannot be undone automatically. ${def.undoNote||""}`.trim());
 
   const ctx=await contextFor(env,shop);
+
+  // Undo writes a stored "before" value back. If what is on the platform now is no longer what
+  // AgentCart wrote, someone has changed it since, and restoring would silently discard that.
+  const current=await def.verify(ctx,parsed.preview);
+  if(!current.verified)
+    throw new WriteGuardError(`AgentCart cannot confirm its change is still in place, so it will not `
+      +`restore an older value over whatever is there now. ${current.detail}`);
+
   await def.undo(ctx,parsed.preview);
+
+  // A mutation returning success is not proof, for a rollback either.
+  const after=await def.verify(ctx,parsed.preview);
+  if(after.verified)
+    throw new Error(`AgentCart could not confirm the change was reverted, so it has not been marked `
+      +`undone. ${after.detail}`);
+
   await env.DB.prepare("UPDATE fixes SET status='undone',undone_ms=?,undo_json=? WHERE id=? AND shop_domain=?")
     .bind(nowMs,JSON.stringify(parsed.preview.before),id,shop).run();
   return await getFix(env,shop,id);

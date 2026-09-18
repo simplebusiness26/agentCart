@@ -19,15 +19,18 @@ export async function upsertBusiness(env:Env,report:AgentReadyReport,nowMs=Date.
   return id;
 }
 
-export async function saveScanRun(env:Env,report:AgentReadyReport,trigger:"user"|"monitor"="user",nowMs=Date.now()){
-  const business=await upsertBusiness(env,report,nowMs);
-  const id=scanRunId(nowMs);
-  const startedMs=Date.parse(report.scannedAt)||nowMs;
+export async function saveScanRun(env:Env,report:AgentReadyReport,trigger:"user"|"monitor"="user",nowMs?:number){
+  const completedMs=nowMs??Date.now();
+  const business=await upsertBusiness(env,report,completedMs);
+  const id=scanRunId(completedMs);
+  // An explicit timestamp is used by scheduled monitoring and deterministic imports. Otherwise
+  // preserve the scanner's own observation time and use arrival time only as a fallback.
+  const startedMs=nowMs??(Date.parse(report.scannedAt)||completedMs);
   await env.DB.prepare(`INSERT INTO scan_runs(id,business_id,domain,score,grade,scoring_version,platform,trigger,status,
       category_scores_json,capabilities_json,started_ms,completed_ms)
     VALUES(?,?,?,?,?,?,?,?, 'complete',?,?,?,?)`)
     .bind(id,business,report.domain,report.score,report.grade,report.scoringVersion,report.platform.platform,trigger,
-      JSON.stringify(report.categories),JSON.stringify(report.capabilities),startedMs,nowMs).run();
+      JSON.stringify(report.categories),JSON.stringify(report.capabilities),startedMs,completedMs).run();
 
   // Pages and findings are written in one batch so a run is never half-persisted.
   const writes=[

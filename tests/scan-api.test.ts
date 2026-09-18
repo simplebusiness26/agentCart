@@ -80,8 +80,13 @@ describe('POST /api/scan',()=>{
 
   it('is rate limited',async()=>{
     mockSite(SITE);
-    for(let i=0;i<10;i++)await scan('https://example.com','9.9.9.9');
-    expect((await scan('https://example.com','9.9.9.9')).status).toBe(429);
+    // The bucket key is Date.now()/windowMs, so a run that crosses a minute boundary starts a
+    // fresh bucket and never reaches the limit. Pin the clock rather than race it.
+    const clock=vi.spyOn(Date,'now').mockReturnValue(Date.now());
+    try{
+      for(let i=0;i<10;i++)await scan('https://example.com','9.9.9.9');
+      expect((await scan('https://example.com','9.9.9.9')).status).toBe(429);
+    }finally{clock.mockRestore();}
   });
 });
 

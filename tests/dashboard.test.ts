@@ -7,6 +7,7 @@ import {buildChecklist} from '../src/launch/checklist';
 import {buildOutcome} from '../src/outcome';
 import {encryptToken} from '../src/shopify';
 import {saveShop} from '../src/db';
+import {reliabilitySummary} from '../src/agentpulse';
 import {TEST_KEY,fakeEnv} from './helpers/env';
 import type {Env} from '../src/types';
 
@@ -68,6 +69,35 @@ describe('dashboard reads field names the APIs actually emit',()=>{
     expect(o.northStar).toHaveProperty('verifiedRevenue');
     expect(o.northStar).toHaveProperty('reportedRevenue');
     expect(o.customers).toHaveProperty('visits');
+  });
+
+  it('shows AgentPulse reliability without presenting observations as an SLA',async()=>{
+    const r=await reliabilitySummary(env,SHOP);
+    for(const key of ['successRate','p50Ms','p95Ms','consecutiveFailures','schemaDrift','note'])
+      expect(r,key).toHaveProperty(key);
+    const html=page();
+    expect(html).toContain('Reliability · AgentPulse');
+    expect(html).toContain("rel.successRate");
+    expect(r.note).toContain('not an SLA');
+  });
+
+  it('uses the connection health field names',async()=>{
+    const {connectionHealth}=await import('../src/ops');
+    const h=await connectionHealth(env,SHOP);
+    const html=page();
+    for(const key of ['overall','summary','checks'])expect(h,key).toHaveProperty(key);
+    for(const key of ['key','label','state','detail','fix'])expect(h.checks[0],key).toHaveProperty(key);
+    expect(html).toContain("getJSON('/api/health/connection')");
+    expect(html).toContain('c.label');
+    expect(html).toContain('h.checks');
+  });
+
+  it('reads the fix groups and preview fields the fixes API emits',()=>{
+    const html=page();
+    // Groups added with scope gating and undo. A name the API does not emit blanks a section.
+    for(const group of ['unavailable','undone'])expect(html,group).toContain('f.'+group);
+    expect(html).toContain('i.reversible');
+    expect(html).toContain('/undo');
   });
 
   it('never reports a blocked training crawler as a merchant failure',()=>{

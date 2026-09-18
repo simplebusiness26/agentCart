@@ -70,3 +70,81 @@ Green tests alone are insufficient; representative checks need deployed evidence
 
 ## First PR
 Implement Phase 13 plus AgentPulse's data model and one end-to-end MCP synthetic monitor.
+
+### Implemented 2026-09-17 (credential-independent first slice)
+- Versioned standards/provider registry with evidence basis, source, version, confidence,
+  deprecation state and freshness. Stale facts become unknown and enter a review queue.
+- Current MCP `2026-07-28` stateless discovery/version/header handling, while retaining an
+  explicit legacy initialize fallback for older clients and servers.
+- Evidence-bounded generic client profiles and Authorization Readiness findings. Unknowns remain
+  unknown; client-product behaviour and tenant isolation are not guessed.
+- AgentPulse target/run/step/incident schema, safe response-size/time limits, schema fingerprints,
+  deduplicated incident/recovery history, observed p50/p95 and success rate.
+- One end-to-end hosted-MCP synthetic journey: connect -> discover -> authenticate boundary ->
+  tools/list -> invoke one explicitly read-only tool -> validate -> store redacted evidence.
+- Reliability is visible in the AI Agents dashboard and can be run manually; due targets also run
+  from the existing daily cron.
+
+This is implemented and unit/integration tested, but it is **not production-verified** until the new
+D1 migration is applied and the journey passes against the deployed Worker URL. Phases 15-17 and the
+remaining Phase 14 journey types are still governed by the implementation order above.
+
+## Completion implementation 2026-09-17
+
+All five phases are now represented end to end in code. “Implemented” still does not mean
+“production verified”: the final section below remains mandatory after migration and deployment.
+
+### Phase 14 completed
+
+- AgentPulse creates seven safe targets per hosted business: MCP, profile discovery, live
+  price/availability, policies, quote/contact, booking handoff and checkout handoff.
+- HTTP journeys perform one bounded GET. Handoff URLs are validated but never opened; no form,
+  cart, booking or purchase is created.
+- Unsupported business capabilities stay out of the failure rate. Reliability is broken down by
+  journey, and schema drift is compared within a target rather than across unlike journeys.
+- Algolia Public MCP can be monitored as a separate trust boundary. MCP capability evidence records
+  search/facet/recommendation discovery without storing tool output or credentials.
+
+### Phase 15 completed
+
+- Query sets support category, geography and named products/services; branded vanity queries remain
+  excluded from discovery measurement.
+- Every run stores method, date, locale, model and bounded context. Unsupported provider APIs remain
+  unsupported, while controlled manual observations are explicitly labelled manual.
+- Mentioned, cited, recommended, selected, task-completed and attributed remain separate outcomes.
+- Observable competitor comparisons cover completeness, structured data, availability, policies,
+  task handoffs, freshness and AgentPulse reliability. The why-losing report links supported gaps to
+  fixes and uses association language rather than invented model reasoning or causation.
+
+### Phase 16 completed
+
+- The platform registry makes detection, connection and write support explicit for Shopify,
+  WooCommerce, WordPress, Wix, Squarespace and custom sites. Only Shopify claims implemented writes.
+- Fix definitions carry their work owner and official documentation. The lifecycle is preview ->
+  approval where required -> apply -> independent verify -> public rescan evidence -> undo.
+- Algolia detection is capability-based and never a score requirement. Public metadata may be saved
+  without credentials. An authorised audit accepts a restricted Search key for one request, stores
+  only capability results, and never stores or returns the key. Admin-key configuration patterns are
+  flagged from public markup without extracting a value.
+
+### Phase 17 completed
+
+- Signed journeys can link intent, a real scan, an AgentPulse run, a safe handoff, a data-minimised
+  enquiry/booking/qualified lead and a verified order.
+- Outcome events retain evidence tiers. External lead references are one-way hashed; contact identity
+  is not stored.
+- The outcome dashboard keeps verified revenue, identifiable referrals, reported/assisted outcomes,
+  leads, task success, visibility and readiness separate.
+- Optional controlled experiments store the hypothesis, population, window, change, metric and
+  result. No before/after movement is described as causal without that evidence.
+
+### Production verification still required
+
+1. Apply migrations `0016_agentpulse.sql`, `0016_shop_scopes.sql` and
+   `0017_phases_14_17.sql` to the real D1 database.
+2. Deploy the Worker with its real D1 ID, public `APP_URL` and Cloudflare secrets.
+3. Reconnect a Shopify development store so its granted scopes are recorded.
+4. Run all seven AgentPulse journeys against the deployed hosted AI profile.
+5. Apply one reversible fix, confirm independent verification, fresh scan evidence and undo.
+6. Complete a signed journey through a safe handoff and a Shopify test order where available.
+7. Run the launch gate. Green tests alone do not satisfy these checks.

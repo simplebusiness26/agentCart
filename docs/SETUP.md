@@ -69,8 +69,15 @@ Replace:
 The configured scopes are:
 
 - `read_products`
+- `write_products` — required by the product metafield and SEO fixes
 - `write_pixels`
 - `read_customer_events`
+
+The scopes Shopify actually grants are recorded per shop at install (`shops.granted_scopes`,
+migration `0016`). A fix declaring a scope that is not in that record is withheld with an
+explanation rather than offered and failed. Stores installed before `write_products` was
+requested must reconnect before the two product fixes become available; the Fixes tab shows
+them under "Needs a reconnection" until they do.
 
 The app config also registers:
 
@@ -224,6 +231,17 @@ POST /api/journey            start a signed agent journey
 POST /api/journey/verify     verify a returned journey id
 GET  /api/health/connection  connection health and recent operations
 GET  /api/outcome            the five-layer outcome view
+GET  /api/agentpulse         reliability, per-journey status, latency, drift and incidents
+POST /api/agentpulse/run     run all seven safe read-only synthetic journeys now
+GET  /api/visibility         visibility evidence, queries, competitors and why-losing gaps
+POST /api/visibility/configure  create non-branded intent queries and competitor set
+POST /api/visibility/manual record an explicitly manual provider observation
+GET  /api/platforms          adapter/write-support and work-owner boundaries
+GET/POST /api/algolia        detection and credential-free public metadata
+POST /api/algolia/audit      one-time authorised audit with an ephemeral Search key
+GET  /api/outcomes           intent-to-order evidence and controlled experiments
+POST /api/outcomes/lead      data-minimised enquiry/booking/qualified-lead evidence
+POST /api/outcomes/experiments[/<id>/complete] controlled experiment records
 GET  /api/launch*            the launch gate (see §10a)
 
 Public, read-only, no session required:
@@ -231,6 +249,7 @@ POST /api/mcp                scan_site, get_agent_standards, get_public_ai_profi
                              get_supported_protocols
 GET  /agents.md              the same surface for assistants that read instead of calling tools
 GET  /.well-known/agents.md
+GET  /api/standards/registry versioned standards/provider evidence and freshness
 
 Per connected business, on AgentCart's hosted AI layer:
 GET  /api/ai/<slug>/ucp      the UCP manifest (discovery and read only)
@@ -244,6 +263,12 @@ and AgentCart reports it as `unknown`.
 The public MCP surface is rate limited and structurally cannot reach an authenticated path. It has no
 `get_scan_result`, because the scan is synchronous and advertising a background job that does not
 exist would leave an agent polling forever.
+
+MCP is dual-era: current `2026-07-28` clients use per-request metadata and `server/discover`, while
+older clients can still use the legacy `initialize` flow. AgentPulse tries the current stateless flow
+first and falls back only when the server is observably legacy. MCP calls are limited to an
+explicitly read-only tool. The other six journeys perform one bounded GET and never follow a
+handoff. No response body, credential or customer data is stored.
 
 ## 11. Before a public Shopify App Store submission
 

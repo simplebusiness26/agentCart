@@ -50,6 +50,8 @@ AI assistants ──► /api/mcp, /agents.md  (public, read-only)
 - `src/standards/`, `src/aeo/` — the Agent Standards diagnostic and the visibility framework.
 - `src/public/tools.ts` — the public read-only MCP surface and `/agents.md`.
 - `src/outcome.ts` — the five-layer outcome view.
+- `src/standards/registry.ts` — versioned standards/provider facts; stale evidence becomes unknown.
+- `src/agentpulse/` — safe MCP synthetic journeys, reliability evidence, schema drift and incidents.
 - `src/ops.ts`, `src/ownership.ts` — operation records, connection health, publication ownership.
 - `extensions/agentcart-pixel/` — Shopify Web Pixel.
 
@@ -64,6 +66,24 @@ having no catalogue. Category scores normalise over applicable checks only.
 
 Every scan records its `scoring_version`. Two scans on different versions are never subtracted from
 one another — the UI says they are not comparable instead of manufacturing a change.
+
+## Readiness layers
+
+One crawl feeds two separate things. `scoreReport` produces the Agent Ready score; `assessReadiness`
+produces the discovery, provider-access, safety, payment and interaction layers from the same fetched
+pages and files, at no extra network cost. `assessSite` returns both, so every scan path — `/scan`,
+`/api/scan` and the monitor — carries the full picture.
+
+`readiness` is a required field on `AssessedSite`, not an optional one. These layers previously
+existed with tests and no caller: the scan path never invoked them, and their single caller passed
+empty strings, so they ran and produced nothing. An optional field is what made that possible to
+miss, so the type no longer permits it. Agent Standards are derived from these layers and reported
+beside the score, never folded into it.
+
+Discovery files are fetched directly (`agents.md`, `llms.txt`, `llms-full.txt`, `sitemap.xml`,
+`.well-known/ucp`). A path answered with an HTML page is treated as absent rather than as a
+published file that fails to parse, because many sites answer every unknown path with a 200
+catch-all and the alternative is telling a merchant their manifest is broken when they have none.
 
 ## Provider readiness
 
@@ -133,7 +153,20 @@ Two rules are load-bearing:
   reason, and it does not count as an improvement.
 - **Merchant content is never changed without approval.** Anything a customer reads is
   `approval_required`, enforced in the engine rather than the UI. Existing merchant copy is never
-  overwritten — fixes only fill genuinely empty fields.
+  overwritten — fixes only fill genuinely empty fields. The stored preview travels with the fix to
+  the dashboard, because approving a change you cannot see is not approval.
+
+Two consequences of those rules:
+
+- **A declared scope is withheld, not attempted.** `requiredScopes` is checked against the scopes
+  Shopify recorded at install. Offering a fix the connection cannot perform produces a failure whose
+  only remedy — reconnect — asks for the very scopes already missing, so the merchant loops. An
+  install predating the scope record reads as granting nothing, which withholds rather than fails.
+- **Undo confirms before and after.** A rollback restores a stored `before` value, so it first
+  re-reads the platform to confirm AgentCart's own change is still in place; if the value has moved
+  on, the undo is refused rather than overwriting an edit made since. It then verifies the rollback,
+  because a mutation returning success is not proof for a rollback either. `verify()` therefore
+  compares the current value against what was written, not merely that something is present.
 
 Price, inventory, variants, checkout configuration and legal policy text are out of scope and must
 not be added without their own feature and explicit approval.
@@ -242,8 +275,22 @@ to be undone, and `undoFix` reverses them. Publication of a public AI profile re
 ownership of the domain — there is no fuzzy matching, because a near-match is how one merchant ends
 up publishing another's catalogue.
 
+## Phase 14-17 evidence paths
+
+- AgentPulse stores bounded timings, status, error categories and structural fingerprints for MCP
+  and six safe HTTP journeys. It discards bodies and never follows a transaction handoff.
+- Visibility observations store their collection method, model, locale and context. Manual evidence
+  and unsupported provider APIs cannot be confused with automated measurements.
+- The platform registry separates detection from connection and write permission. Shopify is the
+  only implemented write adapter; other platforms get scan/hosted-layer/developer paths.
+- Algolia is treated as an existing retrieval layer. Public metadata contains no key, and an
+  authorised Search key is used ephemerally for one audit request.
+- Outcome events link opaque signed journey IDs, not people. Optional external lead references are
+  hashed before storage. Evidence tiers remain separate through to the dashboard.
+
 ## Not built
 
-Assisted-conversion modelling, merchant benchmarks, WooCommerce and WordPress write integrations,
-billing, and autonomous purchasing. Platform adapters are structured so the first two commerce
-integrations can follow without reworking the scanner or fix engine.
+Assisted-conversion modelling, merchant benchmarks, WooCommerce/WordPress/Wix/Squarespace write
+integrations, billing, paid provider visibility adapters, and autonomous purchasing. Platform
+adapters are structured so future commerce integrations can follow without reworking the scanner or
+fix engine.

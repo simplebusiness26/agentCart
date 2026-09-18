@@ -55,11 +55,18 @@ export async function verifyJourneyId(secret:string,shop:string,provider:string,
   return diff===0;
 }
 
-export async function startJourney(env:Env,shop:string,provider:string,opts:{intent?:string;targetUrl?:string;itemId?:string;agentLabel?:string}={},nowMs=Date.now()){
+export async function startJourney(env:Env,shop:string,provider:string,opts:{intent?:string;targetUrl?:string;itemId?:string;agentLabel?:string;
+  discoveryRunId?:string;pulseRunId?:string;handoffType?:string}={},nowMs=Date.now()){
   const journeyId=await createJourneyId(env.SHOPIFY_API_SECRET,shop,provider,nowMs);
-  await env.DB.prepare(`INSERT INTO commerce_journeys(journey_id,shop_domain,provider,agent_label,intent,target_url,item_id,created_ms,last_seen_ms)
-    VALUES(?,?,?,?,?,?,?,?,?)`)
-    .bind(journeyId,shop,provider,opts.agentLabel||null,opts.intent||null,opts.targetUrl||null,opts.itemId||null,nowMs,nowMs).run();
+  let discoveryRunId:string|null=null,pulseRunId:string|null=null;
+  if(opts.discoveryRunId){const row=await env.DB.prepare(`SELECT r.id FROM scan_runs r JOIN businesses b ON b.id=r.business_id
+    WHERE r.id=? AND b.connected_shop_domain=?`).bind(opts.discoveryRunId,shop).first();if(row)discoveryRunId=opts.discoveryRunId;}
+  if(opts.pulseRunId){const row=await env.DB.prepare("SELECT id FROM agentpulse_runs WHERE id=? AND shop_domain=?")
+    .bind(opts.pulseRunId,shop).first();if(row)pulseRunId=opts.pulseRunId;}
+  await env.DB.prepare(`INSERT INTO commerce_journeys(journey_id,shop_domain,provider,agent_label,intent,target_url,item_id,created_ms,last_seen_ms,
+    discovery_run_id,pulse_run_id,handoff_type) VALUES(?,?,?,?,?,?,?,?,?,?,?,?)`)
+    .bind(journeyId,shop,provider,opts.agentLabel||null,opts.intent||null,opts.targetUrl||null,opts.itemId||null,nowMs,nowMs,
+      discoveryRunId,pulseRunId,opts.handoffType?.slice(0,80)||null).run();
   return journeyId;
 }
 

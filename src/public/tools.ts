@@ -1,14 +1,11 @@
 import type {Env} from "../types";
 import {assessSite} from "../agentready";
 import {buildStandards} from "../standards";
-import {assessSafety} from "../agentready/safety";
-import {assessPayment} from "../agentready/payment";
-import {assessInteraction} from "../agentready/interaction";
-import {assessDiscovery} from "../providers/discovery";
-import {providerAccess} from "../providers/robots";
+import {DISCOVERY_PATHS} from "../providers/discovery";
 import {PROTOCOLS} from "../protocol";
 import {resolveSlug,buildProfile} from "../ailayer/service";
-import {LAUNCH_CHECKS} from "../launch/checks";
+import {discoverResult,legacyInitialize,listResult,protocolError,READ_ONLY_ANNOTATIONS,requestEra,toolResult,type McpRequestContext} from "../mcp/compat";
+import {registrySnapshot,STANDARDS_REGISTRY_VERSION} from "../standards/registry";
 
 // AgentCart as a capability an agent can call (Phase 12.8).
 //
@@ -22,13 +19,13 @@ import {LAUNCH_CHECKS} from "../launch/checks";
 export const PUBLIC_TOOLS=[
   {name:"scan_site",description:"Scan any public business website and return an Agent Ready assessment: score, categories, what AI can and cannot understand and do, and prioritised fixes. Synchronous.",
    inputSchema:{type:"object",properties:{url:{type:"string",description:"Public website address."}},
-     required:["url"],additionalProperties:false}},
+     required:["url"],additionalProperties:false},annotations:READ_ONLY_ANNOTATIONS},
   {name:"get_agent_standards",description:"List the agent standards and checks AgentCart currently evaluates, and what each means.",
-   inputSchema:{type:"object",properties:{},additionalProperties:false}},
+   inputSchema:{type:"object",properties:{},additionalProperties:false},annotations:READ_ONLY_ANNOTATIONS},
   {name:"get_public_ai_profile",description:"Get the published AI profile for a business that has connected and published one.",
-   inputSchema:{type:"object",properties:{slug:{type:"string"}},required:["slug"],additionalProperties:false}},
+   inputSchema:{type:"object",properties:{slug:{type:"string"}},required:["slug"],additionalProperties:false},annotations:READ_ONLY_ANNOTATIONS},
   {name:"get_supported_protocols",description:"List the agent commerce protocols AgentCart supports, and what it deliberately does not implement.",
-   inputSchema:{type:"object",properties:{},additionalProperties:false}}
+   inputSchema:{type:"object",properties:{},additionalProperties:false},annotations:READ_ONLY_ANNOTATIONS}
 ] as const;
 
 export type PublicToolName=typeof PUBLIC_TOOLS[number]["name"];
@@ -40,20 +37,16 @@ export async function callPublicTool(env:Env,name:string,args:Record<string,unkn
       if(!url)return {error:"A public website address is required."};
       // assessSite applies the SSRF guard, byte caps and time budget already.
       const report=await assessSite(url);
-      const homeHtml=report.pages[0]?.signals?"":"";
-      const standards=buildStandards({report,
-        discovery:[assessDiscovery("agents_md",undefined),assessDiscovery("ucp_manifest",undefined)],
-        providers:providerAccess(undefined),
-        safety:assessSafety(homeHtml),
-        payment:assessPayment(report.pages,homeHtml,
-          {sellsProducts:report.checks.some(c=>c.category==="catalog"&&c.status!=="na")}),
-        interaction:assessInteraction(homeHtml,{})});
+      const standards=buildStandards({report,...report.readiness});
       return {
         domain:report.domain,score:report.score,grade:report.grade,
         scoringVersion:report.scoringVersion,platform:report.platform,
         categories:report.categories,capabilities:report.capabilities,
         pointsRecoverable:report.pointsRecoverable,
         businessType:standards.profile.type,
+        agentStandards:{score:standards.score,applicable:standards.applicable,
+          passing:standards.passing,summary:standards.summary,note:standards.note},
+        discovery:report.readiness.discovery.map(d=>({path:d.path,state:d.state,detail:d.detail})),
         topFixes:report.checks.filter(c=>c.status!=="pass"&&c.status!=="na")
           .sort((a,b)=>b.estimatedGain-a.estimatedGain).slice(0,5)
           .map(c=>({title:c.plainTitle,whyItMatters:c.whyItMatters,fix:c.recommendedFix,pointsRecoverable:c.estimatedGain})),
@@ -61,7 +54,13 @@ export async function callPublicTool(env:Env,name:string,args:Record<string,unkn
       };
     }
     case "get_agent_standards":
-      return {checks:LAUNCH_CHECKS.map(c=>({key:c.key,title:c.title})).slice(0,0),
+      return {registryVersion:STANDARDS_REGISTRY_VERSION,
+        facts:registrySnapshot().map(f=>({key:f.key,family:f.family,title:f.title,version:f.version,
+          source:f.source,verifiedOn:f.verifiedOn,evidence:f.effectiveBasis,confidence:f.confidence,
+          stale:f.stale,lifecycle:f.lifecycle})),
+        // These are site-facing checks. AgentCart's own deployment launch gate is intentionally
+        // separate and cannot be inferred from a public standards response.
+        discoveryPaths:DISCOVERY_PATHS,
         note:"AgentCart evaluates business readiness across five categories and agent standards across discovery, content, interaction, payment and catalogue protocols.",
         categories:["business","catalog","policies","access","actions"],
         standardsGroups:["discovery","content","interaction","payment","catalog_protocol"],
@@ -89,24 +88,29 @@ export async function callPublicTool(env:Env,name:string,args:Record<string,unkn
 const ok=(id:unknown,result:unknown)=>({jsonrpc:"2.0",id,result});
 const err=(id:unknown,code:number,message:string)=>({jsonrpc:"2.0",id,error:{code,message}});
 
-export async function handlePublicMcp(env:Env,body:any){
+const PUBLIC_IDENTITY={name:"agentcart",version:"1.1.0",
+  instructions:"Read-only Agent Ready scanning, standards, protocol and public business-profile tools."};
+
+export async function handlePublicMcp(env:Env,body:any,ctx:McpRequestContext={}){
   const id=body?.id??null;
   if(body?.jsonrpc!=="2.0")return err(id,-32600,"Expected a JSON-RPC 2.0 request.");
   const method=String(body?.method||"");
-  if(method==="initialize")
-    return ok(id,{protocolVersion:"2024-11-05",capabilities:{tools:{}},
-      serverInfo:{name:"agentcart",version:"1.0.0"}});
+  const era=requestEra(body);
+  const versionError=protocolError(id,body,ctx);
+  if(versionError)return versionError;
+  if(method==="server/discover")return ok(id,discoverResult(PUBLIC_IDENTITY));
+  if(method==="initialize")return ok(id,legacyInitialize(body,PUBLIC_IDENTITY));
   if(method==="notifications/initialized")return null;
   if(method==="ping")return ok(id,{});
-  if(method==="tools/list")return ok(id,{tools:PUBLIC_TOOLS});
+  if(method==="tools/list")return ok(id,listResult(PUBLIC_TOOLS,era));
   if(method==="tools/call"){
     const name=String(body?.params?.name||"");
     if(!PUBLIC_TOOLS.some(t=>t.name===name))return err(id,-32602,`Unknown tool: ${name}`);
     try{
       const result=await callPublicTool(env,name,(body?.params?.arguments||{}) as Record<string,unknown>);
-      return ok(id,{content:[{type:"text",text:JSON.stringify(result,null,2)}]});
+      return ok(id,toolResult(result,era));
     }catch(e){
-      return ok(id,{content:[{type:"text",text:JSON.stringify({error:e instanceof Error?e.message:"Tool failed."})}],isError:true});
+      return ok(id,toolResult({error:e instanceof Error?e.message:"Tool failed."},era,true));
     }
   }
   return err(id,-32601,`Unsupported method: ${method}`);

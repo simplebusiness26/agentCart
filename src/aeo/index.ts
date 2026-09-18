@@ -21,7 +21,15 @@ export interface AeoProviderAdapter {
 export interface AeoQuery { id:string; intent:string; query:string; category?:string }
 export interface AeoObservation {
   queryId:string;subject:string;isCompetitor:boolean;
-  mentioned:boolean;cited:boolean;recommended:boolean;position:number|null;evidence:string;
+  mentioned:boolean;cited:boolean;recommended:boolean;selected?:boolean;taskCompleted?:boolean;attributed?:boolean;
+  position:number|null;evidence:string;evidenceUrl?:string;evidenceTier?:"observed"|"manual"|"verified";
+}
+
+export interface VisibilityContext {locale?:string;model?:string;context?:Record<string,unknown>}
+const CONTEXT_KEYS=new Set(["country","region","device","accountState","promptVariant","surface"]);
+function safeContext(value:Record<string,unknown>={}){
+  return Object.fromEntries(Object.entries(value).filter(([key,v])=>CONTEXT_KEYS.has(key)&&["string","number","boolean"].includes(typeof v))
+    .map(([key,v])=>[key,typeof v==="string"?v.slice(0,120):v]));
 }
 
 // Adapters are declared so the shape is real and a key can activate one later. None is available
@@ -52,14 +60,19 @@ const INTENTS=[
 /** Query sets are built from category and location, never from the business name.
  *  "Tell me about <business>" measures nothing: an assistant asked about a named business will
  *  discuss it regardless of whether it would ever recommend it. */
-export function suggestQueries(category:string,location?:string):Array<{intent:string;query:string}>{
+export function suggestQueries(category:string,location?:string,productsOrServices:string[]=[]):Array<{intent:string;query:string}>{
   const c=category.trim().toLowerCase();
   if(!c)return [];
   const l=(location||"").trim();
-  return INTENTS
+  const base=INTENTS
     .filter(i=>l||!i.template.length||!/location|urgency/.test(i.intent))
     .map(i=>({intent:i.intent,query:i.template("",c,l).replace(/\s+/g," ").trim()}))
     .filter(q=>q.query&&!/ in $| near $/.test(q.query));
+  const specific=productsOrServices.map(v=>v.trim().toLowerCase()).filter(Boolean).slice(0,5).flatMap(value=>[
+    {intent:"specific_product_or_service",query:`best ${value}${l?` in ${l}`:""}`},
+    {intent:"availability",query:`${value}${l?` near ${l}`:""} available now`}
+  ]);
+  return [...base,...specific].filter((q,i,all)=>all.findIndex(x=>x.query===q.query)===i);
 }
 
 export function isVanityQuery(query:string,businessName:string){
@@ -102,7 +115,7 @@ export interface AeoRunResult {
   unsupportedReason?:string;observations:AeoObservation[];
 }
 
-export async function runAeo(env:Env,shop:string,providerId:string,businessName:string,nowMs=Date.now()):Promise<AeoRunResult>{
+export async function runAeo(env:Env,shop:string,providerId:string,businessName:string,nowMs=Date.now(),context:VisibilityContext={}):Promise<AeoRunResult>{
   const adapter=ADAPTERS.find(a=>a.id===providerId);
   const runId=`aeo_${nowMs.toString(36)}_${Math.random().toString(36).slice(2,8)}`;
   if(!adapter)
@@ -110,25 +123,28 @@ export async function runAeo(env:Env,shop:string,providerId:string,businessName:
       unsupportedReason:"Unknown provider.",observations:[]};
 
   if(!adapter.available(env)||!adapter.run){
-    await env.DB.prepare(`INSERT INTO aeo_runs(id,shop_domain,provider,status,unsupported_reason,started_ms,completed_ms)
-      VALUES(?,?,?,'unsupported',?,?,?)`)
-      .bind(runId,shop,adapter.id,adapter.unsupportedReason,nowMs,nowMs).run();
+    await env.DB.prepare(`INSERT INTO aeo_runs(id,shop_domain,provider,model,status,unsupported_reason,started_ms,completed_ms,method,locale,context_json)
+      VALUES(?,?,?,?, 'unsupported',?,?,?,'unsupported',?,?)`)
+      .bind(runId,shop,adapter.id,context.model||null,adapter.unsupportedReason,nowMs,nowMs,context.locale||null,
+        JSON.stringify(safeContext(context.context))).run();
     return {runId,provider:adapter.id,status:"unsupported",
       unsupportedReason:adapter.unsupportedReason,observations:[]};
   }
 
   const queries=(await listQueries(env,shop)).filter(q=>!isVanityQuery(q.query,businessName));
   const subjects=[businessName,...(await listCompetitors(env,shop)).map(c=>c.name)];
-  await env.DB.prepare(`INSERT INTO aeo_runs(id,shop_domain,provider,status,started_ms) VALUES(?,?,?,'running',?)`)
-    .bind(runId,shop,adapter.id,nowMs).run();
+  await env.DB.prepare(`INSERT INTO aeo_runs(id,shop_domain,provider,model,status,started_ms,method,locale,context_json)
+    VALUES(?,?,?,?,'running',?,'provider_api',?,?)`)
+    .bind(runId,shop,adapter.id,context.model||null,nowMs,context.locale||null,JSON.stringify(safeContext(context.context))).run();
   try{
     const observations=await adapter.run(env,queries,subjects);
     if(observations.length)
       await env.DB.batch(observations.map(o=>env.DB.prepare(
-        `INSERT INTO aeo_results(run_id,query_id,subject,is_competitor,mentioned,cited,recommended,position,evidence,created_ms)
-         VALUES(?,?,?,?,?,?,?,?,?,?)`)
+        `INSERT INTO aeo_results(run_id,query_id,subject,is_competitor,mentioned,cited,recommended,selected,task_completed,attributed,position,evidence,evidence_url,evidence_tier,created_ms)
+         VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`)
         .bind(runId,o.queryId,o.subject,o.isCompetitor?1:0,o.mentioned?1:0,o.cited?1:0,
-          o.recommended?1:0,o.position,o.evidence.slice(0,500),nowMs)));
+          o.recommended?1:0,o.selected?1:0,o.taskCompleted?1:0,o.attributed?1:0,o.position,o.evidence.slice(0,500),
+          o.evidenceUrl||null,o.evidenceTier||"observed",nowMs)));
     await env.DB.prepare("UPDATE aeo_runs SET status='measured',completed_ms=? WHERE id=?").bind(nowMs,runId).run();
     return {runId,provider:adapter.id,status:"measured",observations};
   }catch(e){
@@ -138,12 +154,40 @@ export async function runAeo(env:Env,shop:string,providerId:string,businessName:
   }
 }
 
+/** Records evidence collected by a person using a provider's normal interface. Manual evidence is
+ * useful, but it is never relabelled as provider-API or verified attribution. */
+export async function recordManualObservation(env:Env,input:{shop:string;provider:string;model?:string;locale?:string;
+  queryId:string;subject:string;isCompetitor?:boolean;mentioned?:boolean;cited?:boolean;recommended?:boolean;
+  selected?:boolean;taskCompleted?:boolean;attributed?:boolean;position?:number|null;evidence:string;evidenceUrl?:string;
+  context?:Record<string,unknown>},nowMs=Date.now()){
+  if(!input.evidence.trim())throw new Error("Manual visibility evidence needs a short observation.");
+  if(!input.subject.trim())throw new Error("Manual visibility evidence needs a subject.");
+  if(input.position!=null&&(!Number.isInteger(input.position)||input.position<1||input.position>100))
+    throw new Error("Visibility position must be a whole number from 1 to 100.");
+  if(input.evidenceUrl){const u=new URL(input.evidenceUrl);if(u.protocol!=="https:")throw new Error("Evidence links must use HTTPS.");}
+  const query=await env.DB.prepare("SELECT id FROM aeo_queries WHERE id=? AND shop_domain=? AND active=1")
+    .bind(input.queryId,input.shop).first();
+  if(!query)throw new Error("That visibility query does not belong to this store.");
+  const runId=`aeo_manual_${nowMs.toString(36)}_${Math.random().toString(36).slice(2,8)}`;
+  await env.DB.batch([
+    env.DB.prepare(`INSERT INTO aeo_runs(id,shop_domain,provider,model,status,started_ms,completed_ms,method,locale,context_json)
+      VALUES(?,?,?,?, 'measured',?,?, 'manual',?,?)`).bind(runId,input.shop,input.provider.slice(0,80),input.model?.slice(0,120)||null,
+        nowMs,nowMs,input.locale?.slice(0,40)||null,JSON.stringify(safeContext(input.context))),
+    env.DB.prepare(`INSERT INTO aeo_results(run_id,query_id,subject,is_competitor,mentioned,cited,recommended,selected,
+      task_completed,attributed,position,evidence,evidence_url,evidence_tier,created_ms)
+      VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,'manual',?)`).bind(runId,input.queryId,input.subject.slice(0,160),input.isCompetitor?1:0,
+        input.mentioned?1:0,input.cited?1:0,input.recommended?1:0,input.selected?1:0,input.taskCompleted?1:0,input.attributed?1:0,
+        input.position??null,input.evidence.slice(0,500),input.evidenceUrl||null,nowMs)
+  ]);
+  return runId;
+}
+
 // --- Reporting ----------------------------------------------------------------------------
 
 export interface AeoMetrics {
   subject:string;isCompetitor:boolean;
   queries:number;mentionRate:number;citationRate:number;recommendationRate:number;
-  averagePosition:number|null;
+  selectionRate:number;taskCompletionRate:number;attributionRate:number;averagePosition:number|null;
 }
 
 export interface AeoReport {
@@ -152,6 +196,7 @@ export interface AeoReport {
   unsupportedProviders:Array<{provider:string;reason:string}>;
   metrics:AeoMetrics[];
   shareOfVoice:Array<{subject:string;isCompetitor:boolean;share:number}>;
+  provenance:Array<{provider:string;method:string;model:string|null;locale:string|null;completedMs:number|null}>;
   caveat:string;
   summary:string;
 }
@@ -160,7 +205,7 @@ export const AEO_CAVEAT=
   "These figures come from a fixed set of test questions, not from real customer conversations. They show how assistants answered those questions when asked; they do not predict what every customer will see, and no ranking or recommendation is promised.";
 
 export async function aeoReport(env:Env,shop:string):Promise<AeoReport>{
-  const runs=await env.DB.prepare("SELECT id,provider,status,unsupported_reason FROM aeo_runs WHERE shop_domain=? ORDER BY started_ms DESC LIMIT 20")
+  const runs=await env.DB.prepare("SELECT id,provider,model,status,unsupported_reason,method,locale,completed_ms FROM aeo_runs WHERE shop_domain=? ORDER BY started_ms DESC LIMIT 20")
     .bind(shop).all();
   const rows=runs.results as Array<any>;
   const measured=rows.filter(r=>r.status==="measured");
@@ -169,12 +214,14 @@ export async function aeoReport(env:Env,shop:string):Promise<AeoReport>{
 
   if(!measured.length)
     return {status:"unsupported",measuredProviders:[],unsupportedProviders:unsupported,
-      metrics:[],shareOfVoice:[],caveat:AEO_CAVEAT,
+      metrics:[],shareOfVoice:[],provenance:rows.map(r=>({provider:String(r.provider),method:String(r.method||"unknown"),
+        model:r.model?String(r.model):null,locale:r.locale?String(r.locale):null,completedMs:r.completed_ms==null?null:Number(r.completed_ms)})),caveat:AEO_CAVEAT,
       summary:"AI visibility has not been measured. No assistant can currently be queried programmatically from this deployment, so AgentCart reports nothing rather than estimating."};
 
   const results=await env.DB.prepare(
     `SELECT subject,is_competitor,COUNT(*) AS queries,
        SUM(mentioned) AS mentions, SUM(cited) AS citations, SUM(recommended) AS recommendations,
+       SUM(selected) AS selections, SUM(task_completed) AS completions, SUM(attributed) AS attributions,
        AVG(position) AS avg_position
      FROM aeo_results WHERE run_id IN (${measured.map(()=>"?").join(",")})
      GROUP BY subject,is_competitor`).bind(...measured.map(r=>r.id)).all();
@@ -185,6 +232,9 @@ export async function aeoReport(env:Env,shop:string):Promise<AeoReport>{
     mentionRate:Number(r.queries)?Number(r.mentions)/Number(r.queries):0,
     citationRate:Number(r.queries)?Number(r.citations)/Number(r.queries):0,
     recommendationRate:Number(r.queries)?Number(r.recommendations)/Number(r.queries):0,
+    selectionRate:Number(r.queries)?Number(r.selections)/Number(r.queries):0,
+    taskCompletionRate:Number(r.queries)?Number(r.completions)/Number(r.queries):0,
+    attributionRate:Number(r.queries)?Number(r.attributions)/Number(r.queries):0,
     averagePosition:r.avg_position==null?null:Number(r.avg_position)}));
 
   const totalMentions=metrics.reduce((n,m)=>n+m.mentionRate*m.queries,0);
@@ -193,7 +243,9 @@ export async function aeoReport(env:Env,shop:string):Promise<AeoReport>{
 
   const me=metrics.find(m=>!m.isCompetitor);
   return {status:"measured",measuredProviders:[...new Set(measured.map(r=>String(r.provider)))],
-    unsupportedProviders:unsupported,metrics,shareOfVoice,caveat:AEO_CAVEAT,
+    unsupportedProviders:unsupported,metrics,shareOfVoice,
+    provenance:measured.map(r=>({provider:String(r.provider),method:String(r.method||"unknown"),
+      model:r.model?String(r.model):null,locale:r.locale?String(r.locale):null,completedMs:r.completed_ms==null?null:Number(r.completed_ms)})),caveat:AEO_CAVEAT,
     summary:me
       ? `You were recommended in ${Math.round(me.recommendationRate*me.queries)} of ${me.queries} test questions.`
       : "No results were recorded for your business."};

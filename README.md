@@ -40,6 +40,11 @@ prove the score rose → publish a hosted AI layer for the rest.**
    real infrastructure. A green test suite never makes AgentCart launch ready, and the code says so.
 10. **Is itself callable by an agent.** A public read-only MCP surface at `/api/mcp` and an
    `/agents.md`, so an assistant can scan a site and read the standards without a merchant account.
+11. **Continuously proves real journeys.** AgentPulse safely checks discovery, prices and stock,
+    policies, contact/quote, booking and checkout handoffs without submitting them, plus a read-only
+    MCP call. Unsupported capabilities are not counted as failures.
+12. **Separates visibility from outcomes.** Mentions, citations, recommendations, selections,
+    completed tasks, leads and attributed orders remain separate, with method/model/locale evidence.
 
 ## Repository
 
@@ -60,7 +65,8 @@ returning a number nobody can verify.
 
 ## Status
 
-The application code is complete and tested (`npm run typecheck && npm test`; 673 tests). It is
+The application code through AgentReady Phase 17 is complete and tested
+(`npm run typecheck && npm test`; 724 tests). It is
 **not yet deployed and not launch ready**: it needs a Cloudflare D1 database, a Shopify app and
 credentials, and a real development store to verify against.
 

@@ -11,6 +11,7 @@ import {TEST_KEY,TEST_SECRET,fakeEnv} from './helpers/env';
 import * as S from './fixtures/shopify';
 import * as F from './fixtures/pages';
 import type {Env} from '../src/types';
+import {CURRENT_MCP_VERSION} from '../src/standards/registry';
 
 const SHOP='demo.myshopify.com';
 let env:Env; let sqlite:any;
@@ -37,6 +38,8 @@ describe('every public tool is read-only',()=>{
     expect(PUBLIC_TOOLS.find(t=>t.name==='scan_site')!.description).toContain('Synchronous');
   });
   it('public tools cannot reach a merchant mutation',async()=>{
+    // Keep this a deterministic security test; it does not need a live example.com request.
+    mockSite({});
     for(const t of PUBLIC_TOOLS){
       const result:any=await callPublicTool(env,t.name,{url:'https://example.com',slug:'x'}).catch(e=>({error:String(e)}));
       const text=JSON.stringify(result||{});
@@ -71,6 +74,34 @@ describe('public MCP surface',()=>{
     expect(init.result.serverInfo.name).toBe('agentcart');
     const list:any=await (await rpc({jsonrpc:'2.0',id:2,method:'tools/list'})).json();
     expect(list.result.tools.length).toBe(PUBLIC_TOOLS.length);
+  });
+  it('supports current stateless discovery and per-request version metadata',async()=>{
+    const meta={'io.modelcontextprotocol/protocolVersion':CURRENT_MCP_VERSION,
+      'io.modelcontextprotocol/clientInfo':{name:'test',version:'1'},
+      'io.modelcontextprotocol/clientCapabilities':{}};
+    const modern=async(body:any)=>worker.fetch(new Request('https://agentcart.example/api/mcp',{method:'POST',
+      headers:{'content-type':'application/json','accept':'application/json, text/event-stream',
+        'MCP-Protocol-Version':CURRENT_MCP_VERSION,'Mcp-Method':body.method,
+        ...(body.params?.name?{'Mcp-Name':body.params.name}:{})},
+      body:JSON.stringify({...body,params:{...(body.params||{}),_meta:meta}})}),env);
+    const discover:any=await (await modern({jsonrpc:'2.0',id:'d',method:'server/discover'})).json();
+    expect(discover.result.supportedVersions).toContain(CURRENT_MCP_VERSION);
+    const list:any=await (await modern({jsonrpc:'2.0',id:'l',method:'tools/list'})).json();
+    expect(list.result.resultType).toBe('complete');
+    expect(list.result.tools.every((t:any)=>t.annotations.readOnlyHint===true)).toBe(true);
+  });
+  it('rejects missing or mismatched modern transport headers with HTTP 400',async()=>{
+    const meta={'io.modelcontextprotocol/protocolVersion':CURRENT_MCP_VERSION,
+      'io.modelcontextprotocol/clientInfo':{name:'test',version:'1'},
+      'io.modelcontextprotocol/clientCapabilities':{}};
+    const missing=await rpc({jsonrpc:'2.0',id:20,method:'tools/list',params:{_meta:meta}});
+    expect(missing.status).toBe(400);
+    expect(((await missing.json()) as any).error.code).toBe(-32020);
+    const mismatch=await worker.fetch(new Request('https://agentcart.example/api/mcp',{method:'POST',
+      headers:{'content-type':'application/json','MCP-Protocol-Version':CURRENT_MCP_VERSION,'Mcp-Method':'tools/call'},
+      body:JSON.stringify({jsonrpc:'2.0',id:21,method:'tools/list',params:{_meta:meta}})}),env);
+    expect(mismatch.status).toBe(400);
+    expect(((await mismatch.json()) as any).error.code).toBe(-32020);
   });
   it('rejects an unknown tool and a bad envelope',async()=>{
     expect(((await (await rpc({jsonrpc:'2.0',id:3,method:'tools/call',params:{name:'delete_store'}})).json()) as any).error.code).toBe(-32602);

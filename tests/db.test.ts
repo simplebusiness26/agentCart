@@ -18,7 +18,8 @@ describe('migrations',()=>{
     expect(files.length).toBeGreaterThan(0);
     expect(files).toEqual([...files].sort());
     const tables=sqlite.prepare("select name from sqlite_master where type='table' order by name").all().map((r:any)=>r.name);
-    for(const t of ['events','oauth_states','scans','shops']) expect(tables).toContain(t);
+    for(const t of ['events','oauth_states','scans','shops','standards_review_queue',
+      'agentpulse_targets','agentpulse_runs','agentpulse_steps','agentpulse_incidents']) expect(tables).toContain(t);
   });
 });
 
@@ -86,6 +87,20 @@ describe('deleteShop',()=>{
     await deleteShop(env,SHOP);
     expect(await getShop(env,SHOP)).toBe(null);
     expect(sqlite.prepare('select count(*) c from events where shop_domain=?').get(SHOP).c).toBe(0);
+  });
+  it('removes AgentPulse reliability evidence for the shop',async()=>{
+    await saveShop(env,SHOP,'t');
+    sqlite.prepare(`insert into agentpulse_targets
+      (id,shop_domain,label,protocol,transport,endpoint,auth_mode,journey,enabled,interval_ms,created_ms,updated_ms)
+      values('p1',?,'x','mcp','streamable_http','https://x.example/mcp','public','mcp_read',1,1000,1,1)`).run(SHOP);
+    sqlite.prepare(`insert into agentpulse_runs
+      (id,target_id,shop_domain,protocol,journey,status,started_ms,completed_ms,latency_ms)
+      values('r1','p1',?,'mcp','mcp_read','pass',1,2,1)`).run(SHOP);
+    sqlite.prepare("insert into agentpulse_steps(run_id,sequence,step,status,latency_ms) values('r1',0,'discover','pass',1)").run();
+    await deleteShop(env,SHOP);
+    expect(sqlite.prepare('select count(*) c from agentpulse_targets').get().c).toBe(0);
+    expect(sqlite.prepare('select count(*) c from agentpulse_runs').get().c).toBe(0);
+    expect(sqlite.prepare('select count(*) c from agentpulse_steps').get().c).toBe(0);
   });
 });
 

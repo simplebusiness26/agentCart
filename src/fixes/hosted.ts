@@ -14,6 +14,7 @@ export const publishAiLayer:FixDefinition={
   fixType:"hosted_layer",
   risk:"low",
   requiredScopes:[],
+  owner:"agentcart",
 
   async preview(ctx){
     const meta=await getProfileMeta(ctx.env,ctx.shop);
