@@ -3,7 +3,11 @@ import type { Env } from "./types";
 // Least privilege: add a scope only when a shipped feature needs it. `read_orders` is
 // deliberately absent -- it is Protected Customer Data and requires an approved Shopify
 // questionnaire. See docs/USER_ACTIONS.md before enabling it.
-const scopes=["read_products","write_pixels","read_customer_events"];
+// write_products is required by the product metafield and SEO fixes. Without it those fixes
+// fail at apply time and the reconnect prompt asks for the same scopes again, so the merchant
+// loops. Any fix declaring a scope not listed here is withheld rather than offered and failed.
+export const SCOPES=["read_products","write_products","write_pixels","read_customer_events"];
+const scopes=SCOPES;
 const encoder=new TextEncoder();
 
 export function validShop(shop:string){return /^[a-z0-9][a-z0-9-]*\.myshopify\.com$/i.test(shop);}
@@ -37,9 +41,10 @@ export async function verifyOAuthHmac(url:URL,secret:string){
 export async function exchangeCode(env:Env,shop:string,code:string){
   const res=await fetch(`https://${shop}/admin/oauth/access_token`,{method:"POST",headers:{"content-type":"application/json"},body:JSON.stringify({client_id:env.SHOPIFY_API_KEY,client_secret:env.SHOPIFY_API_SECRET,code})});
   if(!res.ok)throw new Error(`Shopify token exchange failed (${res.status}).`);
-  const data=await res.json<{access_token:string}>();
+  const data=await res.json<{access_token:string;scope?:string}>();
   if(!data.access_token)throw new Error("Shopify returned no access token.");
-  return data.access_token;
+  // Shopify echoes the scopes actually granted, which can be narrower than the ones requested.
+  return {token:data.access_token,scope:data.scope||""};
 }
 
 async function aesKey(secret:string){

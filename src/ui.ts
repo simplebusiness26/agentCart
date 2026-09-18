@@ -1,4 +1,4 @@
-import type { AgentReadyReport } from "./agentready/types";
+import type { AgentReadyReport, ReadinessLayers } from "./agentready/types";
 import { reportBody } from "./report";
 
 const css=`
@@ -109,7 +109,11 @@ const num=n=>new Intl.NumberFormat('en-GB').format(Number(n||0));
 const esc=v=>String(v==null?'':v).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const delta=(cur,prev)=>{const c=Number(cur||0),p=Number(prev||0);if(!p)return '';const d=(c-p)/p*100;return '<span class="muted" style="font-size:13px"> '+(d>=0?'+':'\u2212')+Math.abs(d).toFixed(1)+'%</span>';};
 const set=(id,html)=>{document.querySelector('#panel-'+id).innerHTML=html;};
-const getJSON=(u,o)=>fetch(u,Object.assign({credentials:'same-origin'},o||{})).then(r=>r.ok?r.json():Promise.reject(r.status));
+// Rejects with the server's own explanation where there is one, so a refusal that has a reason
+// (an undo the store has moved past, a write the guard blocked) can be shown rather than swallowed.
+const getJSON=(u,o)=>fetch(u,Object.assign({credentials:'same-origin'},o||{}))
+  .then(r=>r.ok?r.json():r.json().catch(()=>({})).then(b=>{
+    const e=new Error(b&&b.error?b.error:'Request failed ('+r.status+')');e.status=r.status;throw e;}));
 
 document.querySelectorAll('.tab').forEach(t=>t.addEventListener('click',()=>{
   document.querySelectorAll('.tab').forEach(x=>x.classList.remove('on'));
@@ -152,13 +156,21 @@ if(demo){
   ['overview','ready','fixes','layer','agents','launch'].forEach(id=>set(id,soon));
 }else{
   // ---- Overview ----
-  Promise.allSettled([getJSON('/api/monitoring'),getJSON('/api/fixes'),getJSON('/api/ai-layer'),getJSON('/api/sync/status')])
-  .then(([mon,fix,layer,sync])=>{
+  Promise.allSettled([getJSON('/api/monitoring'),getJSON('/api/fixes'),getJSON('/api/ai-layer'),getJSON('/api/sync/status'),getJSON('/api/health/connection')])
+  .then(([mon,fix,layer,sync,hea])=>{
     const history=mon.status==='fulfilled'?(mon.value.history||[]):[];
     const latest=history[0];
     const f=fix.status==='fulfilled'?fix.value:{automatic:[],needsApproval:[],done:[],failed:[]};
     const l=layer.status==='fulfilled'?layer.value:null;
     const sy=sync.status==='fulfilled'?sync.value:null;
+    const h=hea.status==='fulfilled'?hea.value:null;
+    const healthCard=h?'<div class="card" style="margin-top:16px"><h3>Connection health</h3>'
+      +'<p class="muted">'+esc(h.summary||'')+'</p>'
+      +'<table class="table"><thead><tr><th>Check</th><th>State</th><th>What it means</th></tr></thead><tbody>'
+      +(h.checks||[]).map(c=>'<tr><td>'+esc(c.label)+'</td>'
+        +'<td><span class="dot '+(c.state==='ok'?'good':c.state==='broken'?'bad':'warn')+'"></span>'+esc(c.state)+'</td>'
+        +'<td class="muted">'+esc(c.detail)+(c.state==='ok'?'':' '+esc(c.fix||''))+'</td></tr>').join('')
+      +'</tbody></table></div>':'';
     const scoreCard=latest
       ? '<div class="metric"><span class="muted">Agent Ready score</span><b>'+num(latest.score)
         +(latest.delta!=null&&latest.delta!==0?'<span class="delta '+(latest.delta>0?'up':'down')+'" style="font-size:14px"> '+(latest.delta>0?'+':'\u2212')+Math.abs(latest.delta)+'</span>':'')+'</b>'
@@ -173,7 +185,8 @@ if(demo){
       +'<div class="card" style="margin-top:16px"><h3>Readiness history</h3>'
       +(history.length?'<table class="table"><thead><tr><th>When</th><th>Score</th><th>Change</th><th>Checked</th></tr></thead><tbody>'
         +history.map(h=>'<tr><td>'+esc(String(new Date(Number(h.started_ms)).toISOString()).slice(0,16).replace("T"," "))+'</td><td>'+num(h.score)+'</td><td>'+(h.delta==null?'<span class="muted">—</span>':(h.delta>0?'+':'\u2212')+Math.abs(h.delta))+'</td><td class="muted">'+esc(h.trigger==='monitor'?'Automatic':'You')+'</td></tr>').join('')
-        +'</tbody></table>':'<div class="empty">No readiness scans yet. Run one from the Agent Ready tab.</div>')+'</div>');
+        +'</tbody></table>':'<div class="empty">No readiness scans yet. Run one from the Agent Ready tab.</div>')+'</div>'
+      +healthCard);
   });
 
   // ---- Agent Ready ----
@@ -181,8 +194,20 @@ if(demo){
     +'<form class="formRow" action="/scan" method="get"><input class="input" name="url" placeholder="yourbusiness.com" required><button class="btn primary">Run a check</button></form></div>');
 
   // ---- Fixes ----
+  const shorten=v=>{const s=typeof v==='string'?v:JSON.stringify(v);return !s||s==='null'?'(empty)':s.length>160?s.slice(0,160)+'…':s;};
+  // Shows what a change replaces and with what. Approving a change you cannot see is not approval.
+  const preview=f=>{
+    if(!f.after)return '';
+    const keys=Object.keys(f.after);
+    if(!keys.length)return '';
+    return '<table class="table" style="margin-top:8px;font-size:13px"><tbody>'
+      +keys.map(k=>'<tr><th>'+esc(k)+'</th><td><div class="muted">Now: '+esc(shorten((f.before||{})[k]))+'</div>'
+        +'<div>After: '+esc(shorten(f.after[k]))+'</div></td></tr>').join('')
+      +'</tbody></table>';
+  };
   const fixRow=(f,actions)=>'<div class="fix"><span class="dot '+(f.status==='verified'?'good':f.status==='failed'?'bad':'warn')+'"></span>'
-    +'<div><b>'+esc(f.summary||f.finding_key)+'</b><div class="muted" style="font-size:13px">'+esc(f.status)+(f.error?' — '+esc(f.error):'')+'</div></div>'
+    +'<div><b>'+esc(f.summary||f.finding_key)+'</b><div class="muted" style="font-size:13px">'+esc(f.status||'')+(f.error?' — '+esc(f.error):'')+'</div>'
+    +preview(f)+'</div>'
     +'<div>'+actions+'</div></div>';
   function loadFixes(){
     getJSON('/api/fixes').then(f=>{
@@ -192,8 +217,11 @@ if(demo){
         +'<div class="formRow"><button class="btn" id="propose">Find fixes</button><button class="btn primary" id="applyauto">Apply safe fixes</button></div></div>'
         +section('Ready to apply',f.automatic,()=> '<span class="pill auto">Safe</span>','Nothing to apply. Try "Find fixes".')
         +section('Needs your approval',f.needsApproval,i=>'<button class="btn approve" data-id="'+esc(i.id)+'">Approve and apply</button>','Nothing is waiting on you.')
-        +section('Done',f.done,()=> '<span class="pill auto">Verified</span>','No fixes have been applied yet.')
-        +(f.failed.length?section('Could not be applied',f.failed,()=> '<span class="pill manual">Failed</span>',''):''));
+        +section('Done',f.done,i=>i.reversible?'<button class="btn undo" data-id="'+esc(i.id)+'">Undo</button>':'<span class="pill auto">Verified</span>','No fixes have been applied yet.')
+        +(f.undone&&f.undone.length?section('Undone',f.undone,()=> '<span class="pill manual">Reverted</span>',''):'')
+        +(f.failed.length?section('Could not be applied',f.failed,()=> '<span class="pill manual">Failed</span>',''):'')
+        +(f.unavailable&&f.unavailable.length?section('Needs a reconnection',f.unavailable,
+          ()=> '<a class="btn" href="/install">Reconnect</a>',''):''));
       document.querySelector('#propose').onclick=()=>{set('fixes','<div class="empty">Working out what can be fixed…</div>');
         getJSON('/api/fixes/propose',{method:'POST'}).then(loadFixes).catch(()=>loadFixes());};
       document.querySelector('#applyauto').onclick=()=>{set('fixes','<div class="empty">Applying…</div>');
@@ -203,6 +231,14 @@ if(demo){
         getJSON('/api/fixes/'+encodeURIComponent(id)+'/approve',{method:'POST'})
           .then(()=>getJSON('/api/fixes/'+encodeURIComponent(id)+'/apply',{method:'POST'}))
           .then(loadFixes).catch(()=>loadFixes());});
+      document.querySelectorAll('.undo').forEach(b=>b.onclick=()=>{
+        const id=b.dataset.id;
+        b.disabled=true;
+        getJSON('/api/fixes/'+encodeURIComponent(id)+'/undo',{method:'POST'})
+          .then(loadFixes)
+          // An undo is refused when the value changed after AgentCart wrote it, so say why
+          // rather than silently redrawing an unchanged row.
+          .catch(e=>{alert(e&&e.message?e.message:'That change could not be undone.');loadFixes();});});
     }).catch(()=>signedOut('fixes','what can be fixed'));
   }
   loadFixes();
@@ -231,8 +267,8 @@ if(demo){
     unknown:['warn','Unknown'],not_available_in_region:['warn','Not in your region']};
   const stateDot=v=>'<span class="dot '+((STATE[v]||['warn'])[0])+'"></span>';
   const stateLabel=v=>esc((STATE[v]||[null,String(v||'Unknown')])[1]);
-  Promise.allSettled([getJSON('/api/providers'),getJSON('/api/protocols'),getJSON('/api/attribution')])
-  .then(([prov,proto,attr])=>{
+  Promise.allSettled([getJSON('/api/providers'),getJSON('/api/protocols'),getJSON('/api/attribution'),getJSON('/api/agentpulse'),getJSON('/api/visibility'),getJSON('/api/algolia')])
+  .then(([prov,proto,attr,pulse,visibility,algolia])=>{
     if(prov.status!=='fulfilled')return signedOut('agents','which AI assistants can reach you');
     const p=prov.value;
     const rows=(p.providers||[]).map(a=>'<tr><td><b>'+esc(a.label||a.provider)+'</b>'
@@ -249,6 +285,32 @@ if(demo){
     const tierRows=attr.status==='fulfilled'
       ? (attr.value.tiers||[]).map(t=>'<tr><td><b>'+esc(t.label||t.tier)+'</b></td><td>'+num(t.orders)+'</td><td>'+money(t.revenue)+'</td></tr>').join('')
       : '';
+    const rel=pulse.status==='fulfilled'?pulse.value.reliability:null;
+    const success=rel&&rel.successRate!=null?(Number(rel.successRate)*100).toFixed(0)+'%':'—';
+    const journeyRows=rel?(rel.journeys||[]).map(j=>'<tr><td>'+esc(String(j.journey||'').replaceAll('_',' '))+'</td><td>'+esc(j.status||'unknown')+'</td><td>'+(j.successRate==null?'—':(Number(j.successRate)*100).toFixed(0)+'%')+'</td></tr>').join(''):'';
+    const pulseCard=rel?'<div class="card" style="margin-top:16px"><h3>Reliability · AgentPulse</h3>'
+      +'<p class="muted">Safe synthetic journeys check discovery, live price and availability, policies, contact, booking, checkout handoff without purchase, and MCP.</p>'
+      +'<div class="metrics"><div class="metric"><span class="muted">Task success</span><b>'+success+'</b></div>'
+      +'<div class="metric"><span class="muted">p50 latency</span><b>'+(rel.p50Ms==null?'—':num(rel.p50Ms)+'ms')+'</b></div>'
+      +'<div class="metric"><span class="muted">p95 latency</span><b>'+(rel.p95Ms==null?'—':num(rel.p95Ms)+'ms')+'</b></div>'
+      +'<div class="metric"><span class="muted">Consecutive failures</span><b>'+num(rel.consecutiveFailures)+'</b></div></div>'
+      +'<div class="finding"><span class="dot '+(rel.schemaDrift?'warn':'good')+'"></span><div><b>Tool schema drift</b>'
+      +'<div class="muted" style="font-size:13px">'+(rel.schemaDrift?'The advertised tool schema changed since the previous run.':'No change detected in the latest two fingerprints.')+'</div></div><div></div></div>'
+      +'<p class="muted" style="font-size:13px">'+esc(rel.note||'')+'</p>'
+      +(journeyRows?'<table class="table"><thead><tr><th>Journey</th><th>Latest</th><th>Measured success</th></tr></thead><tbody>'+journeyRows+'</tbody></table>':'')
+      +'<div class="formRow"><button class="btn" id="runpulse">Run reliability check</button></div></div>':'';
+    const vis=visibility.status==='fulfilled'?visibility.value:null;
+    const gaps=vis&&vis.whyLosing?(vis.whyLosing.gaps||[]):[];
+    const visibilityCard=vis?'<div class="card" style="margin-top:16px"><h3>AI visibility and choice</h3>'
+      +'<p class="muted">'+esc(vis.report.summary||'')+'</p>'
+      +'<div class="metrics"><div class="metric"><span class="muted">Measured providers</span><b>'+num((vis.report.measuredProviders||[]).length)+'</b></div>'
+      +'<div class="metric"><span class="muted">Intent queries</span><b>'+num((vis.queries||[]).length)+'</b></div>'
+      +'<div class="metric"><span class="muted">Observable gaps</span><b>'+num(gaps.length)+'</b></div></div>'
+      +(gaps.length?gaps.slice(0,5).map(g=>'<div class="finding"><span class="dot warn"></span><div><b>'+esc(g.gap)+'</b><div class="muted" style="font-size:13px">'+esc(g.fix)+' '+esc(g.explanation)+'</div></div><div>'+esc(g.competitor)+'</div></div>').join(''):'<div class="empty">No supported competitor gap is currently observable. Unsupported providers remain unmeasured.</div>')
+      +'<p class="muted" style="font-size:13px">'+esc(vis.report.caveat||'')+'</p></div>':'';
+    const al=algolia.status==='fulfilled'?algolia.value:null;
+    const algoliaCard=al?'<div class="card" style="margin-top:16px"><h3>Algolia-aware checks</h3><p class="muted">'+esc(al.note||'')+'</p>'
+      +'<div class="finding"><span class="dot '+(al.detected?'good':'warn')+'"></span><div><b>'+(al.detected?'Algolia detected':'Algolia not detected')+'</b><div class="muted" style="font-size:13px">Search '+esc(al.checks.search)+', facets '+esc(al.checks.facets)+', recommendations '+esc(al.checks.recommendations)+', analytics '+esc(al.checks.analytics)+'.</div></div><div></div></div></div>':'';
     set('agents','<div class="card"><h3>Which AI assistants can reach you</h3>'
       +'<p class="muted">'+esc(p.note||'')+'</p>'
       +(rows?'<table class="table"><thead><tr><th>Assistant</th><th>Can discover you</th><th>Can fetch pages</th><th>Available to you</th><th></th></tr></thead><tbody>'+rows+'</tbody></table>'
@@ -258,7 +320,10 @@ if(demo){
         +'<p class="muted" style="font-size:13px">'+esc(proto.value.note||'')+'</p></div>':'')
       +(tierRows?'<div class="card" style="margin-top:16px"><h3>Orders by strength of evidence</h3>'
         +'<table class="table"><thead><tr><th>Evidence</th><th>Orders</th><th>Revenue</th></tr></thead><tbody>'+tierRows+'</tbody></table>'
-        +'<p class="muted" style="font-size:13px">'+esc(attr.value.note||'')+'</p></div>':''));
+        +'<p class="muted" style="font-size:13px">'+esc(attr.value.note||'')+'</p></div>':'')+pulseCard+visibilityCard+algoliaCard);
+    const runpulse=document.querySelector('#runpulse');
+    if(runpulse)runpulse.onclick=()=>{runpulse.disabled=true;runpulse.textContent='Checking…';
+      getJSON('/api/agentpulse/run',{method:'POST'}).then(()=>location.reload()).catch(()=>location.reload());};
   });
 
   // ---- Launch: the one authoritative answer, never softened by a green test suite ----
@@ -280,6 +345,7 @@ if(demo){
       +'<div class="metric"><span class="muted">Verified AI revenue</span><b>'+money(o.northStar.verifiedRevenue)+'</b></div>'
       +'<div class="metric"><span class="muted">Reported only</span><b>'+money(o.northStar.reportedRevenue)+'</b></div></div>'
       +'<p class="muted" style="font-size:13px">'+esc(o.northStar.note)+'</p>'
+      +'<p class="muted" style="font-size:13px">Outcome evidence events: '+num(o.proof&&o.proof.events?o.proof.events.reduce((n,e)=>n+Number(e.count||0),0):0)+'. '+esc(o.proof&&o.proof.note||'')+'</p>'
       +'<p class="muted" style="font-size:13px">'+esc(o.note)+'</p></div>':'';
     set('launch','<div class="card"><h3>'+esc(c.headline)+'</h3>'
       +'<p class="muted">'+esc(c.hardRule)+'</p>'
@@ -297,7 +363,7 @@ if(demo){
 </script>`);
 }
 
-export function agentReadyPage(report:AgentReadyReport,comparison?:{delta:number|null;comparable:boolean;previous:{score:number}|null}|null){
+export function agentReadyPage(report:AgentReadyReport&{readiness?:ReadinessLayers},comparison?:{delta:number|null;comparable:boolean;previous:{score:number}|null}|null){
   return layout(`Agent Ready: ${report.domain}`,reportBody(report,comparison));
 }
 

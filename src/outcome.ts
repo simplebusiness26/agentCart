@@ -4,6 +4,7 @@ import {revenueByTier,agenticOrders} from "./attribution";
 import {getScanComparison} from "./agentready/store";
 import {aeoReport} from "./aeo";
 import {connectionHealth} from "./ops";
+import {outcomeProofSummary} from "./outcomes/proof";
 
 // The outcome view (Phase 12.10): move from "your score is X" toward "here is what AI can do for
 // your business and what it produced".
@@ -21,6 +22,7 @@ export interface OutcomeView {
     agents:Array<{agent:string;tier:string;orders:number;revenue:number}>;verified:boolean};
   health:{overall:string;summary:string};
   northStar:{label:string;verifiedRevenue:number;reportedRevenue:number;unattributed:number;note:string};
+  proof:{events:Array<Record<string,unknown>>;experiments:Array<Record<string,unknown>>;note:string};
   note:string;
 }
 
@@ -29,12 +31,13 @@ export const LAYER_NOTE=
 
 export async function buildOutcome(env:Env,shop:string,domain:string|null,nowMs=Date.now()):Promise<OutcomeView>{
   const anchor=nowMs+1;
-  const [dash,tiers,agents,visibility,health]=await Promise.all([
+  const [dash,tiers,agents,visibility,health,proof]=await Promise.all([
     getDashboardWindows(env,shop,nowMs),
     revenueByTier(env,shop,anchor-WINDOW_MS,anchor),
     agenticOrders(env,shop,anchor-WINDOW_MS,anchor),
     aeoReport(env,shop),
-    connectionHealth(env,shop,nowMs)
+    connectionHealth(env,shop,nowMs),
+    outcomeProofSummary(env,shop,anchor-WINDOW_MS,anchor)
   ]);
   const comparison=domain?await getScanComparison(env,domain).catch(()=>null):null;
   const latest=comparison?.latest as any;
@@ -78,6 +81,7 @@ export async function buildOutcome(env:Env,shop:string,domain:string|null,nowMs=
       note:verified>0
         ? "Verified revenue comes from cryptographically verified platform order records."
         : "No verified AI revenue yet. Reported revenue comes from the storefront pixel and is shown separately because a browser can be made to say anything."},
+    proof:{events:proof.events as Array<Record<string,unknown>>,experiments:proof.experiments as Array<Record<string,unknown>>,note:proof.note},
     note:LAYER_NOTE
   };
 }

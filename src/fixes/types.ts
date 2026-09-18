@@ -10,7 +10,9 @@ export interface FixPreview {
   after:Record<string,unknown>;
 }
 
-export interface FixContext { env:Env; shop:string; token:string }
+/** grantedScopes is what Shopify recorded at install. An install predating that record reads as
+ *  empty, which withholds scope-gated fixes rather than offering ones that would fail. */
+export interface FixContext { env:Env; shop:string; token:string; grantedScopes:string[] }
 
 // A fix declares everything about itself, so routes never contain platform mutations and
 // nothing can be applied without a preview, an approval rule and a verification step.
@@ -25,6 +27,8 @@ export interface FixDefinition {
   fixType:"automatic"|"approval_required"|"hosted_layer";
   risk:"low"|"medium"|"high";
   requiredScopes:string[];
+  owner:"agentcart"|"developer"|"merchant_platform"|"legal"|"third_party";
+  officialDocs?:string[];
   preview(ctx:FixContext,limit?:number):Promise<FixPreview[]>;
   apply(ctx:FixContext,preview:FixPreview):Promise<Record<string,unknown>>;
   // Re-reads the platform and confirms the intended result. A mutation returning 200 is

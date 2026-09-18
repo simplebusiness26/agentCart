@@ -31,6 +31,18 @@ describe('CORS preflight matches what the pixel actually sends',()=>{
   });
 });
 
+describe('MCP origin protection',()=>{
+  it('rejects a foreign browser origin but allows non-browser server calls',async()=>{
+    const foreign=await worker.fetch(new Request('https://agentcart.example/api/mcp',{method:'POST',
+      headers:{origin:'https://evil.example','content-type':'application/json'},
+      body:JSON.stringify({jsonrpc:'2.0',id:1,method:'ping'})}),env);
+    expect(foreign.status).toBe(403);
+    const server=await worker.fetch(new Request('https://agentcart.example/api/mcp',{method:'POST',
+      headers:{'content-type':'application/json'},body:JSON.stringify({jsonrpc:'2.0',id:1,method:'ping'})}),env);
+    expect(server.status).toBe(200);
+  });
+});
+
 describe('response headers',()=>{
   it('HTML pages carry a content security policy and framing protection',async()=>{
     const res=await get('/');
@@ -49,7 +61,8 @@ describe('authenticated routes reject anonymous callers',()=>{
   it.each([
     ['/api/dashboard','GET'],['/api/sync','POST'],['/api/sync/status','GET'],
     ['/api/ai-layer','GET'],['/api/fixes','GET'],['/api/fixes/propose','POST'],
-    ['/api/fixes/abc/apply','POST'],['/api/monitoring','GET']
+    ['/api/fixes/abc/apply','POST'],['/api/monitoring','GET'],
+    ['/api/agentpulse','GET'],['/api/agentpulse/run','POST']
   ])('%s %s returns 401',async(path,method)=>{
     const res=await worker.fetch(new Request(`https://agentcart.example${path}`,{method}),env);
     expect(res.status).toBe(401);
