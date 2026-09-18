@@ -21,7 +21,7 @@ import { agentCartAgentsMd, handlePublicMcp } from "./public/tools";
 import { buildOutcome } from "./outcome";
 import { consumeOAuthState, countCustomerEvents, deleteShop, getDashboardWindows, getShop, insertEvent, logComplianceRequest, putOAuthState, rateLimit, redactCustomer, saveOrder, saveShop, setIngestToken, updatePixelId } from "./db";
 import { createWebPixel, encryptToken, exchangeCode, installUrl, normalizeOrderId, pixelSettings, randomState, parseSession, safeCompare, sessionCookie, validShop, verifyOAuthHmac, verifyWebhookHmac, webPixelUpdate } from "./shopify";
-import { agentReadyPage, aiProfilePage, dashboardPage, errorPage, homePage, privacyPage, setupPage, termsPage } from "./ui";
+import { agentReadyPage, aiProfilePage, dashboardPage, errorPage, homePage, privacyPage, setupPage, sponsoredAgentDemoPage, termsPage } from "./ui";
 import { ensureHostedJourneyTargets, reliabilitySummary, runAgentPulsePass, runPulseTarget } from "./agentpulse";
 import { factByKey, queueStaleRegistryFacts, registrySnapshot, STANDARDS_REGISTRY_VERSION } from "./standards/registry";
 import { mcpHttpStatus } from "./mcp/compat";
@@ -122,6 +122,7 @@ async function route(request:Request,env:Env):Promise<Response>{
   if(request.method==="GET"&&path==="/privacy")return html(privacyPage());
   if(request.method==="GET"&&path==="/terms")return html(termsPage());
   if(request.method==="GET"&&path==="/setup")return html(setupPage());
+  if(request.method==="GET"&&path==="/demo/sponsored-agent")return html(sponsoredAgentDemoPage());
 
   if(request.method==="GET"&&path==="/scan"){
     const target=url.searchParams.get("url")||"";
