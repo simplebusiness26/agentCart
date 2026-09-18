@@ -100,6 +100,8 @@ export function dashboardPage(demo:boolean,shop?:string|null,pixelFailed=false){
     <button class="tab" data-tab="layer">AI Layer</button>
     <button class="tab" data-tab="traffic">AI Traffic</button>
     <button class="tab" data-tab="agents">AI Agents</button>
+    <button class="tab" data-tab="sales">AI Sales</button>
+    <button class="tab" data-tab="analytics">Analytics &amp; Growth</button>
     <button class="tab" data-tab="launch">Launch</button>
   </div>
   <div id="panel-overview" class="panel"><div class="empty">Loading…</div></div>
@@ -108,6 +110,8 @@ export function dashboardPage(demo:boolean,shop?:string|null,pixelFailed=false){
   <div id="panel-layer" class="panel" hidden><div class="empty">Loading…</div></div>
   <div id="panel-traffic" class="panel" hidden><div class="empty">Loading commerce signals…</div></div>
   <div id="panel-agents" class="panel" hidden><div class="empty">Loading agent readiness…</div></div>
+  <div id="panel-sales" class="panel" hidden><div class="empty">Loading your Business Brain and AI salesperson…</div></div>
+  <div id="panel-analytics" class="panel" hidden><div class="empty">Loading visibility, fanouts, sources and growth actions…</div></div>
   <div id="panel-launch" class="panel" hidden><div class="empty">Loading launch status…</div></div>
   </div></main><script>
 const demo=${demo?"true":"false"};
@@ -162,6 +166,8 @@ getJSON('/api/dashboard'+(demo?'?demo=1':'')).then(d=>{
 if(demo){
   const soon='<div class="card empty"><h3>Available once a store is connected</h3><p>This demo shows AI traffic only.</p></div>';
   ['overview','ready','fixes','layer','agents','launch'].forEach(id=>set(id,soon));
+  set('sales','<div class="card"><span class="chip">DEMO → READY → LIVE</span><h3>Business AI Sales Agent</h3><p class="muted">A connected merchant gets one verified Business Brain, a controllable AI salesperson, grounded preview conversations, regression tests and provider-ready packages.</p><a class="btn" href="/demo/sponsored-agent">Open the concept demo</a></div>');
+  set('analytics','<div class="card"><span class="chip">PHASES 25–29</span><h3>AI analytics that lead to action</h3><p class="muted">Visibility, citations, query fanouts, crawler evidence, perception, shopping results and revenue stay evidence-labelled, then route into a verifiable fix.</p></div>');
 }else{
   // ---- Overview ----
   Promise.allSettled([getJSON('/api/monitoring'),getJSON('/api/fixes'),getJSON('/api/ai-layer'),getJSON('/api/sync/status'),getJSON('/api/health/connection')])
@@ -199,7 +205,14 @@ if(demo){
 
   // ---- Agent Ready ----
   set('ready','<div class="card"><h3>Check your website</h3><p class="muted">Run a fresh Agent Ready assessment of your public website.</p>'
-    +'<form class="formRow" action="/scan" method="get"><input class="input" name="url" placeholder="yourbusiness.com" required><button class="btn primary">Run a check</button></form></div>');
+    +'<form class="formRow" action="/scan" method="get"><input class="input" name="url" placeholder="yourbusiness.com" required><button class="btn primary">Run a check</button></form></div>'
+    +'<div class="card" style="margin-top:16px"><h3>Path to 100</h3><p class="muted">See every applicable point you can recover, who owns each fix and exactly how AgentReady will verify it.</p>'
+    +'<button class="btn" id="buildPath100">Build my Path to 100</button><div id="path100Result" style="margin-top:14px"></div></div>');
+  document.querySelector('#buildPath100').onclick=()=>{const button=document.querySelector('#buildPath100'),box=document.querySelector('#path100Result');button.disabled=true;box.innerHTML='<div class="muted">Scanning the connected public website and emerging standards…</div>';
+    getJSON('/api/readiness/path-to-100',{method:'POST'}).then(r=>{const p=r.path||{},groups=p.grouped||{};
+      const rows=(p.paths||[]).map(x=>'<div class="finding"><span class="dot warn"></span><div><b>'+esc(x.findingKey)+'</b><div class="muted" style="font-size:12px">'+esc((x.steps||[])[0]||'')+' · Verify: '+esc((x.verification||[])[0]||'')+'</div></div><div>+'+num(x.scoreRecoverable)+' · '+esc(x.mode)+'</div></div>').join('');
+      box.innerHTML='<div class="metrics"><div class="metric"><span class="muted">Current</span><b>'+num(p.currentScore)+'</b></div><div class="metric"><span class="muted">Potential</span><b>'+num(p.potentialScore)+'</b></div><div class="metric"><span class="muted">Automatic</span><b>+'+num(groups.automatic)+'</b></div><div class="metric"><span class="muted">Needs people/platform</span><b>+'+num(Number(groups.approval_required||0)+Number(groups.guided||0)+Number(groups.manual||0)+Number(groups.developer_instructions||0))+'</b></div></div>'+(rows||'<div class="empty">Every applicable scored check currently passes.</div>');
+    }).catch(e=>{box.textContent=e.message;}).finally(()=>{button.disabled=false;});};
 
   // ---- Fixes ----
   const shorten=v=>{const s=typeof v==='string'?v:JSON.stringify(v);return !s||s==='null'?'(empty)':s.length>160?s.slice(0,160)+'…':s;};
@@ -332,6 +345,55 @@ if(demo){
     const runpulse=document.querySelector('#runpulse');
     if(runpulse)runpulse.onclick=()=>{runpulse.disabled=true;runpulse.textContent='Checking…';
       getJSON('/api/agentpulse/run',{method:'POST'}).then(()=>location.reload()).catch(()=>location.reload());};
+  });
+
+  // ---- Business Brain + AI Sales Agent (Phases 18-21) ----
+  Promise.allSettled([getJSON('/api/business-brain'),getJSON('/api/sales-agent')]).then(([brainRes,agentRes])=>{
+    if(brainRes.status!=='fulfilled'||agentRes.status!=='fulfilled')return signedOut('sales','your Business Brain and AI salesperson');
+    const b=brainRes.value,a=agentRes.value.agent||{},channels=agentRes.value.channels||[];
+    const channelRows=channels.map(c=>'<div class="finding"><span class="dot '+(c.state==='active'||c.state==='ready_for_provider'?'good':c.state==='demo'?'warn':'bad')+'"></span>'
+      +'<div><b>'+esc(c.label)+'</b><div class="muted" style="font-size:13px">'+esc((c.limitations||[]).join(' '))+'</div></div><div class="muted">'+esc(c.state)+'</div></div>').join('');
+    set('sales','<div class="metrics"><div class="metric"><span class="muted">Agent status</span><b>'+esc(a.status||'draft')+'</b></div>'
+      +'<div class="metric"><span class="muted">Verified facts</span><b>'+num(b.factCount)+'</b></div>'
+      +'<div class="metric"><span class="muted">Catalogue items</span><b>'+num(b.itemCount)+'</b></div>'
+      +'<div class="metric"><span class="muted">Config version</span><b>'+num(a.version||1)+'</b></div></div>'
+      +'<div class="two"><div class="card"><h3>Talk to your AI salesperson</h3><p class="muted">Preview uses verified Business Brain facts and refuses unknown answers.</p>'
+      +'<div class="formRow"><input id="salesQuestion" class="input" placeholder="Ask a customer question"><button id="askSales" class="btn primary">Ask</button></div><div id="salesReply" style="margin-top:14px"></div>'
+      +'<div class="formRow"><button id="testSales" class="btn">Run regression tests</button><button id="toggleSales" class="btn">'+(a.status==='paused'?'Activate':'Pause')+'</button></div></div>'
+      +'<div class="card"><h3>What it knows</h3><div class="finding"><span class="dot good"></span><div>Business identity and contact</div><div>verified</div></div>'
+      +'<div class="finding"><span class="dot good"></span><div>Products, prices and availability</div><div>'+num(b.itemCount)+'</div></div>'
+      +'<div class="finding"><span class="dot good"></span><div>Policies</div><div>'+num((b.policyKeys||[]).length)+'</div></div>'
+      +'<div class="finding"><span class="dot warn"></span><div>Unknown claims</div><div>refused</div></div></div></div>'
+      +'<div class="card" style="margin-top:16px"><h3>Distribution channels</h3>'+channelRows+'<p class="muted" style="font-size:13px">Ready means technically prepared. It never means provider-approved or live.</p></div>');
+    document.querySelector('#askSales').onclick=()=>{const q=document.querySelector('#salesQuestion').value;if(!q)return;
+      document.querySelector('#salesReply').innerHTML='<div class="muted">Checking verified facts…</div>';
+      getJSON('/api/sales-agent/preview',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({message:q})}).then(r=>{
+        const x=r.reply||{};document.querySelector('#salesReply').innerHTML='<div class="bubble agent" style="max-width:100%">'+esc(x.text||'')+'</div><div class="muted" style="font-size:12px;margin-top:6px">Facts used: '+esc((x.factsUsed||[]).join(', ')||'none — escalated')+'</div>';}).catch(e=>{document.querySelector('#salesReply').textContent=e.message;});};
+    document.querySelector('#testSales').onclick=()=>{document.querySelector('#testSales').disabled=true;getJSON('/api/sales-agent/test',{method:'POST'}).then(r=>alert(r.passed+' of '+r.total+' deterministic scenarios passed.')).finally(()=>{document.querySelector('#testSales').disabled=false;});};
+    document.querySelector('#toggleSales').onclick=()=>getJSON('/api/sales-agent',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({status:a.status==='paused'?'active':'paused'})}).then(()=>location.reload());
+  });
+
+  // ---- Analytics Superset + Growth Engine (Phases 22-29) ----
+  Promise.allSettled([getJSON('/api/analytics'),getJSON('/api/growth'),getJSON('/api/readiness/benchmark')]).then(([analyticsRes,growthRes,benchRes])=>{
+    if(analyticsRes.status!=='fulfilled')return signedOut('analytics','AI visibility and growth analytics');
+    const a=analyticsRes.value,g=growthRes.status==='fulfilled'?growthRes.value:{opportunities:[]},bench=benchRes.status==='fulfilled'?benchRes.value:null;
+    const me=(a.visibility||[]).find(v=>!String(v.subject||'').toLowerCase().includes('competitor'))||(a.visibility||[])[0]||{};
+    const gaps=(a.sourceGaps||[]).slice(0,6).map(x=>'<div class="finding"><span class="dot warn"></span><div><b>'+esc(x.domain)+'</b><div class="muted" style="font-size:12px">'+esc(x.action)+'</div></div><div>'+num(x.citations)+'</div></div>').join('');
+    const actions=(a.actions||[]).slice(0,8).map(x=>'<div class="finding"><span class="dot '+(x.status==='verified'?'good':'warn')+'"></span><div><b>'+esc(x.title)+'</b><div class="muted" style="font-size:12px">Route: '+esc(x.route)+' · Owner: '+esc(x.owner)+'</div></div><div>'+esc(x.status)+'</div></div>').join('');
+    const opps=(g.opportunities||[]).slice(0,8).map(x=>'<div class="finding"><span class="dot warn"></span><div><b>'+esc(x.query)+'</b><div class="muted" style="font-size:12px">'+esc(x.source)+' · '+esc(x.intent)+' · '+esc(x.current_coverage)+'</div></div><div>'+esc(x.status)+'</div></div>').join('');
+    set('analytics','<div class="metrics"><div class="metric"><span class="muted">Visibility</span><b>'+((Number(me.visibility)||0)*100).toFixed(0)+'%</b></div>'
+      +'<div class="metric"><span class="muted">Share of voice</span><b>'+((Number(me.shareOfVoice)||0)*100).toFixed(0)+'%</b></div>'
+      +'<div class="metric"><span class="muted">Fanouts</span><b>'+num(a.fanouts&&a.fanouts.total)+'</b><span class="muted" style="font-size:12px"> observed and synthetic separate</span></div>'
+      +'<div class="metric"><span class="muted">Benchmark blockers</span><b>'+num(bench&&bench.releaseBlockers)+'</b></div></div>'
+      +'<div class="two"><div class="card"><h3>Query fanouts</h3><p class="muted">Repeated terms: '+esc(((a.fanouts&&a.fanouts.repeatedTerms)||[]).slice(0,8).map(x=>x.term).join(', ')||'No observations yet')+'</p>'
+      +'<div class="formRow"><input id="fanoutPrompt" class="input" placeholder="Customer prompt"><button id="makeFanouts" class="btn">Plan fanouts</button></div><div id="fanoutResult" class="muted" style="margin-top:10px"></div></div>'
+      +'<div class="card"><h3>Source gaps</h3>'+(gaps||'<div class="empty">No citation gaps recorded yet.</div>')+'</div></div>'
+      +'<div class="two"><div class="card"><h3>Growth opportunities</h3>'+(opps||'<div class="empty">Add customer questions or fanouts to build the queue.</div>')+'</div>'
+      +'<div class="card"><h3>Actions</h3>'+(actions||'<div class="empty">No analytics actions yet.</div>')+'</div></div>'
+      +'<div class="card" style="margin-top:16px"><a class="btn" href="/api/analytics/export.csv">Export evidence CSV</a><p class="muted" style="font-size:12px">'+esc(a.caveat||'')+'</p></div>');
+    document.querySelector('#makeFanouts').onclick=()=>{const prompt=document.querySelector('#fanoutPrompt').value;if(!prompt)return;
+      getJSON('/api/analytics/fanouts/synthetic',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({prompt,createOpportunities:true})}).then(r=>{
+        document.querySelector('#fanoutResult').textContent=(r.fanouts||[]).map(x=>x.query).join(' · ');});};
   });
 
   // ---- Launch: the one authoritative answer, never softened by a green test suite ----

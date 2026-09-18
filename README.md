@@ -1,5 +1,7 @@
 # AgentCart
 
+> Latest build status: [AgentReady Phases 18–29](docs/PHASES_18_29_IMPLEMENTATION_STATUS.md), including the Business Brain, AI Sales Agent, Scanner Superset, Path to 100, SEO/GEO growth loop and Peec-level analytics foundation.
+
 **Make your business ready for AI customers.**
 
 People increasingly ask an AI assistant what to buy and who to use. AgentCart checks whether those
