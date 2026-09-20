@@ -4,7 +4,7 @@
 // Every entry carries `verifiedOn`. These capabilities are new and move quickly, so a stale
 // registry should be visible rather than silent -- see docs/PROVIDER_RESEARCH.md for sources.
 
-export const REGISTRY_VERIFIED_ON="2026-09-10";
+export const REGISTRY_VERIFIED_ON="2026-09-21";
 
 // Five distinct answers. They are never collapsed: "we could not tell" and "the merchant failed"
 // and "this is not offered in their country" are different facts with different remedies.
@@ -84,16 +84,20 @@ export const PROVIDERS:ProviderDefinition[]=[
     agentProduct:"ChatGPT",
     crawlers:[
       {token:"oai-searchbot",label:"OpenAI search crawler",purpose:"discovery",respectsRobots:true,
-       note:"Surfaces sites in ChatGPT search results.",source:"https://platform.openai.com/docs/bots"},
-      {token:"chatgpt-user",label:"ChatGPT user-initiated fetch",purpose:"agentic_fetch",respectsRobots:true,
-       note:"Fetches a page because a user asked ChatGPT to.",source:"https://platform.openai.com/docs/bots"},
+       note:"Surfaces sites in ChatGPT search results. OpenAI says search eligibility should be managed with this crawler.",source:"https://developers.openai.com/api/docs/bots"},
+      {token:"oai-adsbot",label:"OpenAI advertising crawler",purpose:"advertising",respectsRobots:true,
+       note:"Validates ChatGPT ad landing pages and can be used for ad relevance. OpenAI says it is not used to train generative AI foundation models.",
+       source:"https://developers.openai.com/api/docs/bots"},
+      {token:"chatgpt-user",label:"ChatGPT user-initiated fetch",purpose:"agentic_fetch",respectsRobots:false,
+       note:"Fetches a page because a user asked ChatGPT to. OpenAI documents that robots.txt rules may not apply to these user-initiated requests.",
+       source:"https://developers.openai.com/api/docs/bots"},
       {token:"gptbot",label:"OpenAI training crawler",purpose:"training",respectsRobots:true,
        note:"Model training. Blocking is a legitimate choice and is not a readiness failure.",
-       source:"https://platform.openai.com/docs/bots"}
+       source:"https://developers.openai.com/api/docs/bots"}
     ],
     protocols:["web","acp"],
     verifiedOn:REGISTRY_VERIFIED_ON,
-    sources:["https://platform.openai.com/docs/bots","https://docs.stripe.com/agentic-commerce/acp"]
+    sources:["https://developers.openai.com/api/docs/bots","https://docs.stripe.com/agentic-commerce/acp"]
   },
   {
     id:"anthropic",
