@@ -6,8 +6,9 @@ import {PROVIDERS} from "../providers/registry";
 // stale never becomes a merchant failure: its effective evidence becomes unknown and it is
 // queued for a human to re-check against the named source.
 
-export const STANDARDS_REGISTRY_VERSION="2026-09-17.1";
+export const STANDARDS_REGISTRY_VERSION="2026-09-21.1";
 export const CURRENT_MCP_VERSION="2026-07-28";
+export const CURRENT_UCP_VERSION="2026-08-25";
 export const LEGACY_MCP_VERSIONS=["2025-11-25","2025-06-18","2025-03-26","2024-11-05"] as const;
 
 export type EvidenceBasis="verified"|"inferred"|"declared"|"unknown";
@@ -51,6 +52,10 @@ export const STANDARD_FACTS:RegistryFact[]=[
    verifiedOn:"2026-09-17",version:CURRENT_MCP_VERSION,basis:"verified",confidence:"high",
    lifecycle:"active",staleAfterDays:90,
    detail:"Extensions, including Tasks, apply only when advertised in capabilities."},
+  {key:"ucp.core",family:"standard",title:"Universal Commerce Protocol core",
+   source:"https://ucp.dev/documentation/announcements/",verifiedOn:"2026-09-21",
+   version:CURRENT_UCP_VERSION,basis:"verified",confidence:"high",lifecycle:"active",staleAfterDays:60,
+   detail:"UCP v2026-08-25 is the current verified release. Businesses advertise supported versions and services through /.well-known/ucp; capability versions are negotiated independently."},
   ...PROVIDERS.map((p):RegistryFact=>({
     key:`provider.${p.id}`,family:"provider",title:`${p.label} provider facts`,source:p.sources[0],
     verifiedOn:p.verifiedOn,version:p.verifiedOn,basis:"verified",confidence:"high",
