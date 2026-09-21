@@ -13,6 +13,7 @@ export function fakeEnv(overrides:Partial<Env>={}){
     SHOPIFY_API_KEY:"test-client-id",
     SHOPIFY_API_SECRET:TEST_SECRET,
     TOKEN_ENCRYPTION_KEY:TEST_KEY,
+    BUILD_SHA:"test-commit",
     ...overrides
   } as Env;
   return {env,sqlite,close};

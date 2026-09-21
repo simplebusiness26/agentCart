@@ -2,7 +2,9 @@
 
 Updated 2026-09-21.
 
-This document records market changes found after the Phase 30–32 implementation. It separates what is already code-ready from new planned work.
+This document records market changes found after the Phase 30–32 implementation and the credential-independent implementation completed from them.
+
+> **Implementation update — 2026-09-21:** Phases 33–35 are now code-ready on `codex/phases-30-32`. Production/provider/browser evidence is still required and no surface is Live. See `docs/PHASES_33_35_IMPLEMENTATION_STATUS.md` and `docs/MUST_COMPLETE_BEFORE_LIVE.md`.
 
 ## Phase 33 — AI Shelf Analytics
 
@@ -71,7 +73,7 @@ https://support.google.com/merchants/answer/17200695
 - route high-frequency terms/missing attributes into catalogue/content actions;
 - keep paid and organic evidence separate.
 
-Status: **planned**.
+Status: **Code-ready** through a scoped, authorised organic export importer. A live Merchant Center API connection is not claimed.
 
 ## 34.2 Conversational product attributes
 
@@ -89,7 +91,7 @@ Examples:
 - preview changes before authorised Merchant Center writes;
 - verify feed acceptance after writes.
 
-Status: **planned**.
+Status: **Code-ready** as a verified-fact readiness report and download-free preview. No Merchant Center write is performed.
 
 ## 34.3 Shopify Agentic Storefront channel state
 
@@ -110,7 +112,7 @@ Primary sources:
 - use Shopify/channel/server evidence for attribution;
 - surface unsupported product/checkout features before enabling a channel.
 
-Status: **planned**.
+Status: **Code-ready** for authorised channel-state observations and correct direct-checkout attribution rules. Live channel outcomes are not claimed.
 
 ---
 
@@ -138,7 +140,7 @@ Primary sources:
 - https://developer.chrome.com/docs/ai/webmcp/imperative-api
 - https://developer.chrome.com/docs/ai/webmcp/secure-tools
 
-Status: **planned only**. No WebMCP installer, WordPress plugin or browser-runtime AgentPulse verifier is being claimed as implemented from this market refresh.
+Status: **Code-ready, not Live**. The action mapper, implementation router, reversible WordPress/WooCommerce plugin, generic adapter boundary, PayPal reuse routing, security gate and authorised browser-runtime verification boundary are implemented. A real authorised development-site installation and browser run remain production evidence.
 
 ---
 
@@ -159,4 +161,4 @@ Before public launch, complete proper trademark/brand clearance and decide wheth
 
 Completed historical phases remain complete when viewed through their phase-scoped benchmark.
 
-The unscoped current-market benchmark should remain not-ready while planned Phase 34/35 gaps exist. That is intentional: market truth can move without rewriting the historical status of completed phases.
+The unscoped current-market benchmark has no remaining credential-independent planned gap through Phase 35. That does not make the release Live: deployment, authorised connections, development-store/site verification and the separate production checklist remain blocking.

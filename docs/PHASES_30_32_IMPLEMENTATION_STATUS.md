@@ -78,4 +78,4 @@ See:
 - `docs/MARKET_REFRESH_2026_09_21_PHASES_33_35.md`
 - `docs/PHASE_35_WEBMCP_FIX_MY_SITE_BUILD_PLAN.md`
 
-These newer gaps do not invalidate the credential-independent completion of Phases 30–32. The unscoped current-market benchmark intentionally exposes them as planned work.
+These newer gaps did not invalidate the credential-independent completion of Phases 30–32. Their code-ready implementation is now recorded in `docs/PHASES_33_35_IMPLEMENTATION_STATUS.md`; production verification remains open.

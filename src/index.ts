@@ -35,10 +35,12 @@ import { benchmarkSummary, buildPathTo100, probeEmergingStandards } from "./read
 import { createContentBrief, groundedDraft, listGrowthOpportunities, opportunitiesFromQuestions, saveGrowthOpportunity } from "./growth";
 import { ANALYTICS_EXPORT_COLUMNS, analyticsCsv, analyticsReport, createAnalyticsAction, evaluateShopping, fanoutsToGrowthOpportunities, perceptionFromResponse, recordCrawlObservation, recordPerception, recordPromptRun, recordShoppingObservation, syntheticFanouts } from "./analytics";
 import { handleAnalyticsMcp } from "./analytics/mcp";
-import {importAuthorisedReferrals,marketAnalyticsReport} from "./analytics/market";
+import {marketAnalyticsReport,importManualReferrals} from "./analytics/market";
 import {completeGa4OAuth,configureGa4Property,ga4AuthorizationUrl,ga4ConnectionStatus,importGa4Report} from "./analytics/ga4";
 import {commerceReadiness,feedJsonl,openAiAdsMeasurementReadiness,openAiCommerceFeed,probeNativeUcp,saveFeedExport,saveLighthouseAgenticReport} from "./commerce";
+import {conversationalProductReadiness,importMerchantAiPerformance,merchantAiChannelReport,saveShopifyAgenticChannelObservation} from "./commerce/channels";
 import {assessAgentInteractionSecurity,saveAgentSecurityAssessment,securityReport} from "./security/agent";
+import {buildWebMcpPlan,saveRuntimeVerification,saveWebMcpPlan,setInstallationState,verifyWebMcpRuntime,webMcpManifest,webMcpReport} from "./webmcp";
 
 const html=(body:string,status=200,headers:HeadersInit={})=>new Response(body,{status,headers:{"content-type":"text/html; charset=utf-8","x-content-type-options":"nosniff","referrer-policy":"strict-origin-when-cross-origin","permissions-policy":"camera=(), microphone=(), geolocation=()","content-security-policy":"default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; connect-src 'self'; form-action 'self'; frame-ancestors 'none'; base-uri 'none'",...headers}});
 const json=(data:unknown,status=200,headers:HeadersInit={})=>new Response(JSON.stringify(data),{status,headers:{"content-type":"application/json; charset=utf-8","cache-control":"no-store",...headers}});
@@ -438,6 +440,28 @@ async function route(request:Request,env:Env):Promise<Response>{
     const body=await request.json<unknown>().catch(()=>null);try{return json(await saveLighthouseAgenticReport(env,shop,body),201);}
     catch(e){return json({error:e instanceof Error?e.message:"Could not import Lighthouse evidence."},400);}
   }
+  if(request.method==="GET"&&path==="/api/commerce/channels"){
+    const shop=await sessionShop(request,env);if(!shop)return json({error:"No connected Shopify session."},401);
+    try{return json(await merchantAiChannelReport(env,shop,await buildBusinessBrain(env,shop)));}
+    catch(e){return json({error:e instanceof Error?e.message:"Could not build the merchant AI-channel report."},409);}
+  }
+  if(request.method==="POST"&&path==="/api/commerce/merchant-ai/import"){
+    const shop=await sessionShop(request,env);if(!shop)return json({error:"No connected Shopify session."},401);const body=await request.json<any>().catch(()=>({}));
+    if(body.authorized!==true)return json({error:"Confirm this export belongs to an authorised Merchant Center account."},403);
+    try{return json(await importMerchantAiPerformance(env,shop,{...body,organicOnly:body.organicOnly===true}),201);}
+    catch(e){return json({error:e instanceof Error?e.message:"Could not import Merchant Center evidence."},400);}
+  }
+  if(request.method==="GET"&&path==="/api/commerce/conversational-products"){
+    const shop=await sessionShop(request,env);if(!shop)return json({error:"No connected Shopify session."},401);
+    try{return json(conversationalProductReadiness(await buildBusinessBrain(env,shop)));}
+    catch(e){return json({error:e instanceof Error?e.message:"Could not assess conversational product data."},409);}
+  }
+  if(request.method==="POST"&&path==="/api/commerce/shopify-channels/import"){
+    const shop=await sessionShop(request,env);if(!shop)return json({error:"No connected Shopify session."},401);const body=await request.json<any>().catch(()=>({}));
+    if(body.authorized!==true)return json({error:"Confirm this state was observed in the authorised Shopify Admin."},403);
+    try{return json(await saveShopifyAgenticChannelObservation(env,shop,{...body,source:"shopify_admin_authorized"}),201);}
+    catch(e){return json({error:e instanceof Error?e.message:"Could not store Shopify channel evidence."},400);}
+  }
   if(request.method==="GET"&&path==="/api/analytics/market"){
     const shop=await sessionShop(request,env);if(!shop)return json({error:"No connected Shopify session."},401);
     return json(await marketAnalyticsReport(env,shop));
@@ -445,7 +469,7 @@ async function route(request:Request,env:Env):Promise<Response>{
   if(request.method==="POST"&&path==="/api/analytics/referrals/import"){
     const shop=await sessionShop(request,env);if(!shop)return json({error:"No connected Shopify session."},401);
     const body=await request.json<any>().catch(()=>({}));if(body.authorized!==true)return json({error:"Confirm that this analytics import is authorised."},403);
-    try{return json(await importAuthorisedReferrals(env,shop,{provider:"ga4",windowStart:String(body.windowStart||""),windowEnd:String(body.windowEnd||""),rows:Array.isArray(body.rows)?body.rows:[]}),201);}
+    try{return json(await importManualReferrals(env,shop,{windowStart:String(body.windowStart||""),windowEnd:String(body.windowEnd||""),rows:Array.isArray(body.rows)?body.rows:[]}),201);}
     catch(e){return json({error:e instanceof Error?e.message:"Could not import referral evidence."},400);}
   }
   if(request.method==="GET"&&path==="/api/analytics/ga4"){
@@ -476,8 +500,38 @@ async function route(request:Request,env:Env):Promise<Response>{
   if(request.method==="POST"&&path==="/api/security/assess"){
     const shop=await sessionShop(request,env);if(!shop)return json({error:"No connected Shopify session."},401);const body=await request.json<any>().catch(()=>({}));
     if(!Array.isArray(body.tools))return json({error:"Supply an array of discovered tool definitions."},400);
-    const assessment=assessAgentInteractionSecurity({tools:body.tools,outputText:body.outputText?String(body.outputText):undefined,identity:body.identity?String(body.identity):undefined});
+    const assessment=assessAgentInteractionSecurity({tools:body.tools,outputText:body.outputText?String(body.outputText):undefined,declaredIdentity:body.identity?String(body.identity):undefined});
     return json(await saveAgentSecurityAssessment(env,shop,String(body.targetLabel||"Imported tool surface"),assessment),201);
+  }
+  if(request.method==="GET"&&path==="/api/webmcp"){
+    const shop=await sessionShop(request,env);if(!shop)return json({error:"No connected Shopify session."},401);return json(await webMcpReport(env,shop));
+  }
+  if(request.method==="POST"&&path==="/api/webmcp/plan"){
+    const shop=await sessionShop(request,env);if(!shop)return json({error:"No connected Shopify session."},401);const body=await request.json<any>().catch(()=>({}));
+    try{const brain=await buildBusinessBrain(env,shop),plan=buildWebMcpPlan(brain,body.signals||{},shop);
+      return json(await saveWebMcpPlan(env,shop,plan),201);}
+    catch(e){return json({error:e instanceof Error?e.message:"Could not build the action plan."},400);}
+  }
+  if(request.method==="GET"&&path==="/api/webmcp/manifest"){
+    const shop=await sessionShop(request,env);if(!shop)return json({error:"No connected Shopify session."},401);
+    const latest=await env.DB.prepare("SELECT actions_json FROM webmcp_plans WHERE shop_domain=? ORDER BY updated_ms DESC LIMIT 1").bind(shop).first<any>();
+    if(!latest)return json({error:"Build and review an action plan first."},409);return json(webMcpManifest(JSON.parse(String(latest.actions_json||"[]"))));
+  }
+  if(request.method==="POST"&&path==="/api/webmcp/installation"){
+    const shop=await sessionShop(request,env);if(!shop)return json({error:"No connected Shopify session."},401);const body=await request.json<any>().catch(()=>({}));
+    if(body.approved!==true)return json({error:"Review and explicitly approve the plan before changing installation state."},403);
+    try{return json(await setInstallationState(env,shop,{planId:String(body.planId||""),adapter:String(body.adapter||"generic"),siteOrigin:String(body.siteOrigin||""),enabled:body.enabled===true}));}
+    catch(e){return json({error:e instanceof Error?e.message:"Could not change installation state."},400);}
+  }
+  if(request.method==="POST"&&path==="/api/webmcp/runtime/import"){
+    const shop=await sessionShop(request,env);if(!shop)return json({error:"No connected Shopify session."},401);const body=await request.json<any>().catch(()=>({}));
+    if(body.authorized!==true||!Array.isArray(body.registeredTools))return json({error:"Supply an authorised browser-runtime observation."},400);
+    const latest=await env.DB.prepare("SELECT actions_json FROM webmcp_plans WHERE shop_domain=? ORDER BY updated_ms DESC LIMIT 1").bind(shop).first<any>();
+    if(!latest)return json({error:"Build an action plan before importing runtime evidence."},409);
+    try{const observation={browser:String(body.browser||"unknown"),adapterVersion:String(body.adapterVersion||"unknown"),registeredTools:body.registeredTools,results:Array.isArray(body.results)?body.results:[],developmentMode:body.developmentMode===true};
+      const verification=await verifyWebMcpRuntime(JSON.parse(String(latest.actions_json||"[]")),observation);
+      return json(await saveRuntimeVerification(env,shop,body.installationId?String(body.installationId):null,observation,verification),201);}
+    catch(e){return json({error:e instanceof Error?e.message:"Could not verify WebMCP runtime evidence."},400);}
   }
   if(request.method==="GET"&&path==="/api/analytics/export.csv"){
     const shop=await sessionShop(request,env);if(!shop)return json({error:"No connected Shopify session."},401);
@@ -876,7 +930,7 @@ async function route(request:Request,env:Env):Promise<Response>{
     const gate=await rateLimit(env,"launch",shop,4,600000).catch(()=>({ok:true,retryAfter:0}));
     if(!gate.ok)return json({error:"The launch gate was run very recently."},429,{"retry-after":String(gate.retryAfter)});
     const body=await request.json<{environment?:string;appVersion?:string}>().catch(()=>({} as any));
-    const out=await runLaunchGate(env,{shop,environment:body.environment,appVersion:body.appVersion});
+    const out=await runLaunchGate(env,{shop,environment:body.environment,appVersion:env.BUILD_SHA||"unknown"});
     return json(out);
   }
 
@@ -1103,7 +1157,7 @@ async function route(request:Request,env:Env):Promise<Response>{
       "access-control-allow-origin":"*"});
   }
 
-  if(request.method==="GET"&&path==="/health")return json({ok:true,service:"AgentCart",time:new Date().toISOString()});
+  if(request.method==="GET"&&path==="/health")return json({ok:true,service:"AgentCart",buildCommit:env.BUILD_SHA||"unknown",time:new Date().toISOString()});
   return json({error:"Not found"},404);
 }
 

@@ -11,6 +11,7 @@ crons = ["17 3 * * *"]
 [vars]
 APP_URL = "http://localhost:8787"
 SHOPIFY_API_VERSION = "2026-07"
+BUILD_SHA = "REPLACE_WITH_GIT_COMMIT"
 
 # Rate limiting currently uses a D1 counter (see rateLimit in src/db.ts) so that it is
 # testable without workerd. At higher volume, Cloudflare's native binding avoids the

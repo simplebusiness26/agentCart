@@ -1,6 +1,6 @@
 import {describe,expect,it} from "vitest";
 import {feedJsonl,openAiAdsMeasurementReadiness,openAiCommerceFeed,parseLighthouseAgenticReport,parseUcpProfile,probeNativeUcp} from "../src/commerce";
-import {brandPerceptionMetrics,importAuthorisedReferrals,industryFitMetrics,normalizeReferralRows,prominenceMetrics} from "../src/analytics/market";
+import {brandPerceptionMetrics,importAuthorisedReferrals,importManualReferrals,industryFitMetrics,normalizeReferralRows,prominenceMetrics} from "../src/analytics/market";
 import {recordPromptRun} from "../src/analytics";
 import {assessAgentInteractionSecurity} from "../src/security/agent";
 import {ga4AuthorizationUrl} from "../src/analytics/ga4";
@@ -63,7 +63,7 @@ describe("Phase 31 market analytics refresh",()=>{
   it("stores atomic prominence and attribute evidence with a category",async()=>{
     const {env,sqlite}=fakeEnv();await recordPromptRun(env,"demo.myshopify.com",{prompt:"best boots",provider:"OpenAI",method:"manual",responseText:"Northstar waterproof boots",subject:"Northstar",mentioned:true,cited:false,recommended:true,category:"walking shoes",
       evidenceSpans:[{spanType:"brand",startOffset:0,endOffset:9}],brandAttributes:[{brand:"Northstar",attribute:"waterproof",evidenceSpan:"Northstar waterproof"}]},100);
-    expect((sqlite.prepare("SELECT COUNT(*) c FROM visibility_evidence_spans").get() as any).c).toBe(1);expect((sqlite.prepare("SELECT COUNT(*) c FROM brand_attribute_observations").get() as any).c).toBe(1);expect((sqlite.prepare("SELECT COUNT(*) c FROM industry_benchmarks").get() as any).c).toBe(1);
+    expect((sqlite.prepare("SELECT COUNT(*) c FROM visibility_evidence_spans").get() as any).c).toBe(1);expect((sqlite.prepare("SELECT COUNT(*) c FROM brand_attribute_observations").get() as any).c).toBe(1);expect((sqlite.prepare("SELECT COUNT(*) c FROM merchant_industry_benchmarks").get() as any).c).toBe(1);
   });
   it("creates a GA4 OAuth URL without exposing the client secret",async()=>{
     const {env}=fakeEnv({GOOGLE_CLIENT_ID:"client.example",GOOGLE_CLIENT_SECRET:"super-secret"});const url=await ga4AuthorizationUrl(env,"demo.myshopify.com",100);
@@ -79,6 +79,23 @@ describe("Phase 32 agent-interaction security",()=>{
   it("requires explicit approval for consequential tools",()=>{
     const result=assessAgentInteractionSecurity({identity:"Trusted shop",tools:[{name:"create_order",description:"Create an order",inputSchema:{type:"object",properties:{idempotencyKey:{type:"string"}}},annotations:{readOnlyHint:false,requiredScopes:["orders:write"]}}]});
     expect(result.applicable).toBe(true);expect(result.findings.find(f=>f.key==="approval")?.state).toBe("fail");
+  });
+  it("treats camel-case, hyphenated, noun-style and unannotated tools as consequential",()=>{
+    for(const name of ["createOrder","checkout-session","order","friendlyHelper"]){
+      const result=assessAgentInteractionSecurity({tools:[{name,inputSchema:{type:"object",additionalProperties:false},annotations:{}}]});
+      expect(result.applicable,name).toBe(true);
+    }
+  });
+  it("keeps a declared label separate from verified identity",()=>{
+    const declared=assessAgentInteractionSecurity({declaredIdentity:"Trusted shop",tools:[{name:"read",inputSchema:{type:"object",additionalProperties:false},annotations:{readOnlyHint:true}}]});
+    expect(declared.findings.find(f=>f.key==="identity")?.state).toBe("unknown");
+    const verified=assessAgentInteractionSecurity({verifiedIdentity:"demo.myshopify.com",tools:[{name:"read",inputSchema:{type:"object",additionalProperties:false},annotations:{readOnlyHint:true}}]});
+    expect(verified.findings.find(f=>f.key==="identity")?.state).toBe("pass");
+  });
+  it("labels pasted referral rows as manual evidence, never authorised GA4",async()=>{
+    const {env,sqlite}=fakeEnv();await importManualReferrals(env,"demo.myshopify.com",{windowStart:"2026-09-01",windowEnd:"2026-09-02",rows:[{source:"chatgpt",sessions:1}]},100);
+    expect((sqlite.prepare("SELECT evidence_tier FROM analytics_import_batches").get() as any).evidence_tier).toBe("manual_import");
+    expect((sqlite.prepare("SELECT evidence_tier FROM analytics_referrals").get() as any).evidence_tier).toBe("manual_import");
   });
   it("does not punish a read-only brochure-site tool for missing transaction controls",()=>{
     const result=assessAgentInteractionSecurity({identity:"Brochure",tools:[{name:"get_business",description:"Read profile",inputSchema:{type:"object"},annotations:{readOnlyHint:true}}]});

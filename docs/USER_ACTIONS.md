@@ -1,11 +1,23 @@
 # What the owner still needs to do
 
+## Phases 33–35 production completion
+
+The code-ready implementation is documented in `docs/PHASES_33_35_IMPLEMENTATION_STATUS.md`.
+
+1. Apply migration `0022_phases_33_35.sql` after `0021`.
+2. Verify two-shop benchmark isolation on development shops.
+3. Import real Merchant Center and Shopify channel evidence only where authorised; keep scoped imports separate from live connections.
+4. Review a Fix My Site plan before installing anything. WordPress must start disabled.
+5. Verify registered browser tools and source-of-truth values on an authorised development site, then prove rollback.
+6. Never let ordinary monitoring submit a payment, order, booking, quote or other consequential action.
+7. Complete `docs/MUST_COMPLETE_BEFORE_LIVE.md`; code-ready does not change the release decision from STOP.
+
 ## Phases 30–32 production completion
 
 The code-ready status and honest limits are documented in
 `docs/PHASES_30_32_IMPLEMENTATION_STATUS.md`. After merging and deploying this phase:
 
-1. Run `npm run db:migrate:remote` and confirm migration `0021_phases_30_32.sql` applied.
+1. Run `npm run db:migrate:remote` and confirm migrations `0021_phases_30_32.sql` and `0022_phases_33_35.sql` applied.
 2. Deploy the Worker, connect a Shopify development store and press **Check native UCP** in
    **Commerce & Security**. The observed profile—not Shopify assumptions—must determine support.
 3. Only on an explicitly opted-in development store, run the UCP negotiation route. It lists tools

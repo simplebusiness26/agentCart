@@ -75,7 +75,7 @@ export async function recordPromptRun(env:Env,shop:string,input:PromptRunInput,n
     statements.push(env.DB.prepare(`INSERT INTO brand_attribute_observations(id,shop_domain,run_id,brand,attribute,polarity,evidence_span,observed_ms)
       VALUES(?,?,?,?,?,?,?,?)`).bind(makeId("battr",nowMs,n++),shop,runId,clean(attribute.brand,160),clean(attribute.attribute,160),attribute.polarity||"neutral",clean(attribute.evidenceSpan,500),nowMs));}
   for(let i=0;i<statements.length;i+=50)await env.DB.batch(statements.slice(i,i+50));
-  if(input.category)await refreshIndustryBenchmarks(env,nowMs);
+  if(input.category)await refreshIndustryBenchmarks(env,shop,nowMs);
   return runId;
 }
 

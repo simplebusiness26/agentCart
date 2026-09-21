@@ -83,6 +83,13 @@ export async function deleteShop(env:Env,shop:string){
     env.DB.prepare("DELETE FROM analytics_connections WHERE shop_domain=?").bind(shop),
     env.DB.prepare("DELETE FROM provider_oauth_states WHERE shop_domain=?").bind(shop),
     env.DB.prepare("DELETE FROM agent_security_assessments WHERE shop_domain=?").bind(shop),
+    env.DB.prepare("DELETE FROM merchant_industry_benchmarks WHERE shop_domain=?").bind(shop),
+    env.DB.prepare("DELETE FROM merchant_ai_performance_imports WHERE shop_domain=?").bind(shop),
+    env.DB.prepare("DELETE FROM shopify_agentic_channel_observations WHERE shop_domain=?").bind(shop),
+    env.DB.prepare("DELETE FROM webmcp_runtime_incidents WHERE shop_domain=?").bind(shop),
+    env.DB.prepare("DELETE FROM webmcp_runtime_runs WHERE shop_domain=?").bind(shop),
+    env.DB.prepare("DELETE FROM webmcp_installations WHERE shop_domain=?").bind(shop),
+    env.DB.prepare("DELETE FROM webmcp_plans WHERE shop_domain=?").bind(shop),
     env.DB.prepare(`DELETE FROM agentpulse_steps WHERE run_id IN
       (SELECT id FROM agentpulse_runs WHERE shop_domain=?)`).bind(shop),
     env.DB.prepare(`DELETE FROM agentpulse_incidents WHERE target_id IN

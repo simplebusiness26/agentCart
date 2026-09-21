@@ -40,11 +40,11 @@ describe("Phase 33 AI Shelf analytics",()=>{
   });
 });
 
-describe("Phases 34-35 are tracked, not falsely implemented",()=>{
-  it("keeps Phase 32 complete and newer WebMCP/merchant work planned",()=>{
+describe("Phases 34-35 benchmark status",()=>{
+  it("keeps phase-scoped history and marks only code foundations covered",()=>{
     expect(benchmarkSummary(32).milestoneReady).toBe(true);
     const current=benchmarkSummary(),planned=current.capabilities.filter(c=>c.state==="planned").map(c=>c.key);
-    expect(current.milestoneReady).toBe(false);
-    expect(planned).toEqual(expect.arrayContaining(["merchant_ai_performance","conversational_attributes","meta_agentic_channel","action_mapper","installer","runtime_monitoring","webmcp_reuse"]));
+    expect(current.milestoneReady).toBe(true);expect(planned).toEqual([]);
+    expect(current.note).not.toContain("Live");
   });
 });

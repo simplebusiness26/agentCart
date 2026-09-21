@@ -1,0 +1,38 @@
+import {describe,expect,it} from "vitest";
+import {recordPromptRun} from "../src/analytics";
+import {importMerchantAiPerformance,conversationalProductReadiness,saveShopifyAgenticChannelObservation} from "../src/commerce/channels";
+import {buildWebMcpPlan,detectPaypalReuse,mapBusinessActions,saveRuntimeVerification,saveWebMcpPlan,setInstallationState,verifyWebMcpRuntime,WEBMCP_ADAPTER_VERSION} from "../src/webmcp";
+import {fakeEnv} from "./helpers/env";
+import {deleteShop,saveShop} from "../src/db";
+import type {BusinessBrain} from "../src/salesagent";
+
+const brain:BusinessBrain={shop:"one.myshopify.com",version:"v1",name:"Northstar",description:"Outdoor gear",website:"https://northstar.example",contact:{email:"hello@northstar.example",phone:null},location:{},policies:{},items:[{id:"p1",handle:"boot",title:"Trail Boot",description:"Waterproof",category:"Footwear",vendor:"Northstar",url:"https://northstar.example/products/boot",priceMin:99,priceMax:99,currency:"GBP",available:true,variants:[{id:"v1",title:"8 / Black",price:99,available:true,sku:"B8"}],syncedMs:1,source:"connected_catalog"}],facts:[{key:"catalog.p1.identity",type:"catalog",value:{},source:"connected_catalog",sourceRecordId:"p1",confidence:"verified",merchantApproved:false,publicSafe:true,verifiedMs:1}],generatedMs:1};
+
+describe("Phase 30-32 review blockers",()=>{
+  it("isolates industry benchmark panels between two shops",async()=>{
+    const {env,sqlite}=fakeEnv();
+    await recordPromptRun(env,"one.myshopify.com",{prompt:"best boots",provider:"OpenAI",method:"manual",subject:"Northstar",mentioned:true,cited:false,recommended:true,category:"boots"},100);
+    await recordPromptRun(env,"two.myshopify.com",{prompt:"best boots",provider:"OpenAI",method:"manual",subject:"Rival",mentioned:true,cited:false,recommended:true,category:"boots"},100);
+    const rows=sqlite.prepare("SELECT shop_domain,subjects_json FROM merchant_industry_benchmarks ORDER BY shop_domain").all() as any[];
+    expect(rows).toHaveLength(2);expect(rows[0].subjects_json).toContain("Northstar");expect(rows[0].subjects_json).not.toContain("Rival");expect(rows[1].subjects_json).toContain("Rival");
+  });
+});
+
+describe("Phase 34 native merchant AI-channel evidence",()=>{
+  it("retains Merchant Center scope and organic-only evidence",async()=>{
+    const {env}=fakeEnv();const out=await importMerchantAiPerformance(env,"one.myshopify.com",{merchantAccountId:"123",category:"Boots",country:"GB",language:"en",windowStart:"2026-09-01",windowEnd:"2026-09-20",organicOnly:true,metrics:{shareOfVoice:.2,topTerms:[{term:"waterproof boots",frequency:10}]}},100);
+    expect(out.scope).toMatchObject({account:"123",country:"GB",organicOnly:true});expect(out.evidenceTier).toBe("authorised_merchant_export");expect(out.actions[0].route).toBe("content");
+    await expect(importMerchantAiPerformance(env,"one.myshopify.com",{merchantAccountId:"123",category:"Boots",country:"GB",language:"en",windowStart:"2026-09-01",windowEnd:"2026-09-20",organicOnly:false},100)).rejects.toThrow(/paid evidence/i);
+  });
+  it("previews conversational attributes without uploading",()=>{const out=conversationalProductReadiness(brain);expect(out.uploaded).toBe(false);expect(out.items[0].missing).toContain("documentLinks");expect(out.items[0].sourceFacts).toContain("catalog.p1.identity");});
+  it("uses Shopify server/channel evidence for direct checkout",async()=>{const {env}=fakeEnv();const out=await saveShopifyAgenticChannelObservation(env,"one.myshopify.com",{channel:"meta",discoveryEnabled:true,directCheckoutEnabled:true,source:"shopify_admin_authorized"},100);expect(out.attributionSource).toBe("shopify_channel_server");expect(out.warning).toContain("browser pixels");});
+});
+
+describe("Phase 35 WebMCP Fix My Site",()=>{
+  it("maps only source-backed actions and routes eligible PayPal reuse",()=>{const actions=mapBusinessActions(brain);expect(actions.find(a=>a.name==="search_products")?.applicable).toBe(true);const paypal=detectPaypalReuse({paypalStoreSync:true,paypalEligible:true,physicalGoods:true,customerCountry:"US",currency:"USD"});expect(paypal.reusable).toBe(true);expect(detectPaypalReuse({paypalStoreSync:true,paypalEligible:true,physicalGoods:true,customerCountry:"GB",currency:"GBP"}).reusable).toBe(false);});
+  it("builds a reviewed plan with fail-safe security classifications",()=>{const plan=buildWebMcpPlan(brain,{wordpress:true},brain.shop);expect(plan.route.route).toBe("wordpress_woocommerce");expect(plan.status).toBe("code_ready");expect(plan.security.findings.find(f=>f.key==="identity")?.state).toBe("pass");});
+  it("runtime verification calls reads but never ordinary-monitoring handoffs",async()=>{const actions=mapBusinessActions(brain),registered=actions.filter(a=>a.applicable).map(a=>({name:a.name,inputSchema:a.inputSchema,readOnlyHint:a.mode==="read"}));const results=actions.filter(a=>a.applicable&&a.mode==="read").map(a=>({name:a.name,invoked:true,sourceMatched:true,latencyMs:5}));const out=await verifyWebMcpRuntime(actions,{browser:"Chrome",adapterVersion:WEBMCP_ADAPTER_VERSION,registeredTools:registered,results});expect(out.status).toBe("pass");expect(out.checks.find(c=>c.name==="checkout_handoff")?.status).toBe("not_run");});
+  it("supports explicit enable and rollback without claiming a live install",async()=>{const {env}=fakeEnv(),saved=await saveWebMcpPlan(env,brain.shop,buildWebMcpPlan(brain,{wordpress:true},brain.shop),100);const enabled=await setInstallationState(env,brain.shop,{planId:saved.id,adapter:"wordpress",siteOrigin:brain.website,enabled:true},200);expect(enabled.status).toBe("approved_pending_install");const disabled=await setInstallationState(env,brain.shop,{planId:saved.id,adapter:"wordpress",siteOrigin:brain.website,enabled:false},300);expect(disabled).toMatchObject({enabled:false,rollback:true});});
+  it("opens and recovers a runtime incident without invoking consequential tools",async()=>{const {env,sqlite}=fakeEnv(),actions=mapBusinessActions(brain),registered=actions.filter(a=>a.applicable).map(a=>({name:a.name,inputSchema:a.inputSchema,readOnlyHint:a.mode==="read"}));const badResults=actions.filter(a=>a.applicable&&a.mode==="read").map(a=>({name:a.name,invoked:true,sourceMatched:false,latencyMs:5}));const badObservation={browser:"Chrome",adapterVersion:WEBMCP_ADAPTER_VERSION,registeredTools:registered,results:badResults};const failed=await verifyWebMcpRuntime(actions,badObservation);expect((await saveRuntimeVerification(env,brain.shop,null,badObservation,failed,100)).status).toBe("fail");const goodObservation={...badObservation,results:badResults.map(r=>({...r,sourceMatched:true}))};const passed=await verifyWebMcpRuntime(actions,goodObservation);expect((await saveRuntimeVerification(env,brain.shop,null,goodObservation,passed,200)).status).toBe("pass");expect((sqlite.prepare("SELECT state FROM webmcp_runtime_incidents").get() as any).state).toBe("recovered");});
+  it("removes all new merchant-scoped evidence when a shop is deleted",async()=>{const {env,sqlite}=fakeEnv();await saveShop(env,brain.shop,"token");const saved=await saveWebMcpPlan(env,brain.shop,buildWebMcpPlan(brain,{wordpress:true},brain.shop),100);await setInstallationState(env,brain.shop,{planId:saved.id,adapter:"wordpress",siteOrigin:brain.website,enabled:true},200);await importMerchantAiPerformance(env,brain.shop,{merchantAccountId:"123",category:"Boots",country:"GB",language:"en",windowStart:"2026-09-01",windowEnd:"2026-09-20",organicOnly:true},100);await deleteShop(env,brain.shop);for(const table of ["webmcp_plans","webmcp_installations","merchant_ai_performance_imports"])expect((sqlite.prepare(`SELECT COUNT(*) c FROM ${table}`).get() as any).c,table).toBe(0);});
+});

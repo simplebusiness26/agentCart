@@ -1,6 +1,6 @@
 # AgentCart
 
-> Latest build status: [AgentReady Phases 30–32](docs/PHASES_30_32_IMPLEMENTATION_STATUS.md), following the completed [Phases 18–29](docs/PHASES_18_29_IMPLEMENTATION_STATUS.md).
+> Latest build status: [AgentReady Phases 33–35](docs/PHASES_33_35_IMPLEMENTATION_STATUS.md), following [Phases 30–32](docs/PHASES_30_32_IMPLEMENTATION_STATUS.md) and [Phases 18–29](docs/PHASES_18_29_IMPLEMENTATION_STATUS.md).
 
 **Make your business ready for AI customers.**
 
@@ -67,7 +67,7 @@ returning a number nobody can verify.
 
 ## Status
 
-The credential-independent application code through AgentReady Phase 32 is complete and tested.
+The credential-independent application code through AgentReady Phase 35 is complete and tested.
 It is
 **not yet deployed and not launch ready**: it needs a Cloudflare D1 database, a Shopify app and
 credentials, and a real development store to verify against.
@@ -79,6 +79,7 @@ against real infrastructure.
 
 The remaining steps are account-level and are listed in
 [`docs/USER_ACTIONS.md`](docs/USER_ACTIONS.md); deployment is in [`docs/SETUP.md`](docs/SETUP.md) and
-the design in [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md).
+the design in [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md). The release-blocking production checklist is
+[`docs/MUST_COMPLETE_BEFORE_LIVE.md`](docs/MUST_COMPLETE_BEFORE_LIVE.md).
 
 AgentCart runs on free tiers during validation. The scanner is deterministic and needs no paid LLM.

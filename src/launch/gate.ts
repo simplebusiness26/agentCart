@@ -103,5 +103,6 @@ export function missingPrerequisites(env:Env){
   if(!env.SHOPIFY_API_SECRET)missing.push("SHOPIFY_API_SECRET");
   if(!env.TOKEN_ENCRYPTION_KEY)missing.push("TOKEN_ENCRYPTION_KEY");
   if(!env.APP_URL||/localhost|127\.0\.0\.1/.test(env.APP_URL))missing.push("APP_URL (a real public HTTPS URL)");
+  if(!env.BUILD_SHA||/REPLACE_WITH|unknown|development/i.test(env.BUILD_SHA))missing.push("BUILD_SHA (the exact deployed Git commit)");
   return missing;
 }

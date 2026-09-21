@@ -2,6 +2,8 @@
 
 Updated 2026-09-21.
 
+> **Implementation update — 2026-09-21:** The credential-independent Phase 35 exit gates are implemented on `codex/phases-30-32`, including the action mapper/router, reversible WordPress/WooCommerce plugin, generic versioned browser adapter, PayPal reuse decision, fail-safe security gate, runtime evidence verifier and disable/rollback state. Nothing in this update proves a live installation; the Live gates below remain open.
+
 ## Why this belongs in Agent Ready
 
 WebMCP is becoming a practical way for browser AI agents to interact with an existing website through structured tools rather than by visually clicking through every page.
@@ -33,16 +35,16 @@ Agent Ready already has useful foundations:
 5. AgentPulse already has deterministic journey-testing concepts for discovery, product/price/availability, contact/quote, booking and checkout handoff.
 6. Agent Ready already has Business Brain data, Shopify/UCP work, a hosted MCP layer, fix previews/approval and continuous monitoring.
 
-What is **not** implemented today:
+What still requires a real authorised environment:
 
-- Agent Ready does not install WebMCP tools on a merchant website.
-- It does not automatically infer the useful action set for each business and publish those tools.
-- There is no WordPress/WooCommerce WebMCP installer/plugin path.
-- There is no generic website WebMCP bridge backed by the merchant's real systems.
-- AgentPulse does not yet exercise a live browser WebMCP runtime and verify registered tools end to end.
-- There is no PayPal Store Sync/WebMCP reuse detector that says "use the existing PayPal path instead of building a duplicate layer."
+- install and enable the plugin on an authorised development website;
+- exercise `document.modelContext` in a compatible real browser/runtime;
+- compare tool outputs with the merchant's live system of record;
+- prove a safe development cart/booking/quote path where applicable;
+- prove incident detection and recovery after deliberate breakage;
+- evidence PayPal Store Sync eligibility before selecting that provider route.
 
-Therefore this is a real follow-on phase, not an already-complete capability.
+Therefore the implementation is Code-ready, while every Live claim remains gated by real environment evidence.
 
 ---
 

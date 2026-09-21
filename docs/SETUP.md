@@ -1,6 +1,6 @@
 # AgentCart setup and deployment
 
-## Phase 18–32 database upgrade
+## Phase 18–35 database upgrade
 
 The normal D1 migration command also applies the non-destructive Phase 18–29 migrations:
 
@@ -12,6 +12,8 @@ This creates the Business Brain, Sales Agent, conversation-test, growth/content,
 visibility/fanout/source/citation, crawler/perception, shopping and analytics-action tables,
 plus migration `0021` for current UCP observations, commerce-feed previews, Lighthouse evidence,
 prominence/industry/brand-attribute analytics, GA4 referral imports and tool-security assessments.
+Migration `0022` adds merchant-isolated benchmark panels, native AI-channel evidence and reversible
+WebMCP planning/runtime records. Apply both before Phase 30–35 production verification.
 Do not mark the upgrade complete until the command has run against the production D1 binding.
 
 AgentCart is built to validate the product on free tiers first. The application is a Cloudflare Worker with D1 storage plus a Shopify Web Pixel extension.
@@ -29,6 +31,9 @@ npx wrangler d1 create agentcart
 ```
 
 Cloudflare will return a database ID. Replace `REPLACE_WITH_D1_DATABASE_ID` in `wrangler.toml` with that ID.
+
+Set `BUILD_SHA` in the production Worker environment to the exact Git commit being deployed. The
+public `/health` response exposes this non-secret value so deployment evidence is unambiguous.
 
 Apply the database schema:
 

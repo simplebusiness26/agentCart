@@ -48,15 +48,15 @@ export function industryFitMetrics(rows:IndustryObservation[],minimumCorpus=10){
       subjects,cooccurrence,stability:sampleSize<minimumCorpus?"insufficient_sample":"measured"};});
 }
 
-export async function refreshIndustryBenchmarks(env:Env,nowMs=Date.now()){
+export async function refreshIndustryBenchmarks(env:Env,shop:string,nowMs=Date.now()){
   const windowStart=nowMs-30*24*60*60*1000;
   const rows=await env.DB.prepare(`SELECT subject,mentioned,category,provider,model,country,entities_json FROM visibility_prompt_runs
-    WHERE category IS NOT NULL AND observed_ms>=? ORDER BY observed_ms DESC LIMIT 20000`).bind(windowStart).all<IndustryObservation>();
+    WHERE shop_domain=? AND category IS NOT NULL AND observed_ms>=? ORDER BY observed_ms DESC LIMIT 20000`).bind(shop,windowStart).all<IndustryObservation>();
   const panels=industryFitMetrics(rows.results);
   for(const panel of panels){
-    await env.DB.prepare("DELETE FROM industry_benchmarks WHERE category=? AND provider=? AND model=? AND country=?").bind(panel.category,panel.provider,panel.model,panel.country).run();
-    await env.DB.prepare(`INSERT INTO industry_benchmarks(id,category,provider,model,country,window_start_ms,window_end_ms,sample_size,subjects_json,cooccurrence_json,created_ms)
-      VALUES(?,?,?,?,?,?,?,?,?,?,?)`).bind(makeId("industry",nowMs),panel.category,panel.provider,panel.model,panel.country,windowStart,nowMs,panel.sampleSize,
+    await env.DB.prepare("DELETE FROM merchant_industry_benchmarks WHERE shop_domain=? AND category=? AND provider=? AND model=? AND country=?").bind(shop,panel.category,panel.provider,panel.model,panel.country).run();
+    await env.DB.prepare(`INSERT INTO merchant_industry_benchmarks(id,shop_domain,category,provider,model,country,window_start_ms,window_end_ms,sample_size,subjects_json,cooccurrence_json,created_ms)
+      VALUES(?,?,?,?,?,?,?,?,?,?,?,?)`).bind(makeId("industry",nowMs),shop,panel.category,panel.provider,panel.model,panel.country,windowStart,nowMs,panel.sampleSize,
         JSON.stringify(panel.subjects),JSON.stringify(panel.cooccurrence),nowMs).run();
   }
   return panels;
@@ -72,20 +72,28 @@ export function normalizeReferralRows(rows:ReferralImportRow[]){return rows.slic
   sessions:Math.max(0,Math.floor(Number(row.sessions)||0)),engagedSessions:Math.max(0,Math.floor(Number(row.engagedSessions)||0)),
   conversions:Math.max(0,Number(row.conversions)||0),revenue:Math.max(0,Number(row.revenue)||0),currency:clean(row.currency,8)||null}));}
 
-export async function importAuthorisedReferrals(env:Env,shop:string,input:{provider:"ga4";windowStart:string;windowEnd:string;rows:ReferralImportRow[]},nowMs=Date.now()){
+async function importReferralRows(env:Env,shop:string,input:{provider:"ga4"|"manual";evidenceTier:"authorised_ga4"|"manual_import";windowStart:string;windowEnd:string;rows:ReferralImportRow[]},nowMs=Date.now()){
   if(!/^\d{4}-\d{2}-\d{2}$/.test(input.windowStart)||!/^\d{4}-\d{2}-\d{2}$/.test(input.windowEnd))throw new Error("Referral windows must use YYYY-MM-DD dates.");
   const rows=normalizeReferralRows(Array.isArray(input.rows)?input.rows:[]);if(!rows.length)throw new Error("No referral rows were supplied.");
   const existing=await env.DB.prepare("SELECT id FROM analytics_import_batches WHERE shop_domain=? AND provider=? AND window_start=? AND window_end=?")
     .bind(shop,input.provider,input.windowStart,input.windowEnd).all<{id:string}>();
   for(const batch of existing.results){await env.DB.prepare("DELETE FROM analytics_referrals WHERE batch_id=?").bind(batch.id).run();await env.DB.prepare("DELETE FROM analytics_import_batches WHERE id=?").bind(batch.id).run();}
-  const batchId=makeId("ga",nowMs);await env.DB.prepare(`INSERT INTO analytics_import_batches(id,shop_domain,provider,evidence_tier,window_start,window_end,row_count,imported_ms)
-    VALUES(?,?,?,?,?,?,?,?)`).bind(batchId,shop,input.provider,"authorised_external",input.windowStart,input.windowEnd,rows.length,nowMs).run();
+  const batchId=makeId(input.provider==="ga4"?"ga":"manual",nowMs);await env.DB.prepare(`INSERT INTO analytics_import_batches(id,shop_domain,provider,evidence_tier,window_start,window_end,row_count,imported_ms)
+    VALUES(?,?,?,?,?,?,?,?)`).bind(batchId,shop,input.provider,input.evidenceTier,input.windowStart,input.windowEnd,rows.length,nowMs).run();
   for(let i=0;i<rows.length;i+=50)await env.DB.batch(rows.slice(i,i+50).map((row,n)=>env.DB.prepare(`INSERT INTO analytics_referrals(id,batch_id,shop_domain,
     assistant,landing_page,country,device,sessions,engaged_sessions,conversions,revenue,currency,evidence_tier,window_start,window_end)
     VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`).bind(makeId("ref",nowMs,i+n),batchId,shop,row.assistant,row.landingPage,row.country,row.device,row.sessions,row.engagedSessions,
-      row.conversions,row.revenue,row.currency,"authorised_external",input.windowStart,input.windowEnd)));
-  return {batchId,rows:rows.length,evidenceTier:"authorised_external",replacedWindow:existing.results.length>0,
-    note:"GA4 referral evidence is reported separately from signed AgentReady journeys and verified platform orders; it is never added to them as duplicate revenue."};
+      row.conversions,row.revenue,row.currency,input.evidenceTier,input.windowStart,input.windowEnd)));
+  return {batchId,rows:rows.length,evidenceTier:input.evidenceTier,replacedWindow:existing.results.length>0,
+    note:input.provider==="ga4"?"Authorised GA4 referral evidence is reported separately from signed AgentReady journeys and verified platform orders; it is never added to them as duplicate revenue.":"Manually supplied rows remain a weaker manual evidence tier and are never relabelled as an authorised GA4 import or summed with verified revenue."};
+}
+
+export function importAuthorisedReferrals(env:Env,shop:string,input:{provider:"ga4";windowStart:string;windowEnd:string;rows:ReferralImportRow[]},nowMs=Date.now()){
+  return importReferralRows(env,shop,{...input,evidenceTier:"authorised_ga4"},nowMs);
+}
+
+export function importManualReferrals(env:Env,shop:string,input:{windowStart:string;windowEnd:string;rows:ReferralImportRow[]},nowMs=Date.now()){
+  return importReferralRows(env,shop,{provider:"manual",evidenceTier:"manual_import",...input},nowMs);
 }
 
 export async function marketAnalyticsReport(env:Env,shop:string){
@@ -98,9 +106,9 @@ export async function marketAnalyticsReport(env:Env,shop:string){
       SUM(conversions) conversions,SUM(revenue) revenue,currency FROM analytics_referrals WHERE shop_domain=?
       GROUP BY assistant,landing_page,country,device,currency ORDER BY sessions DESC LIMIT 1000`).bind(shop).all(),
     env.DB.prepare("SELECT id,provider,evidence_tier,window_start,window_end,row_count,imported_ms FROM analytics_import_batches WHERE shop_domain=? ORDER BY imported_ms DESC LIMIT 50").bind(shop).all(),
-    env.DB.prepare("SELECT category,provider,model,country,window_start_ms,window_end_ms,sample_size,subjects_json,cooccurrence_json FROM industry_benchmarks ORDER BY created_ms DESC LIMIT 100").all()
+    env.DB.prepare("SELECT category,provider,model,country,window_start_ms,window_end_ms,sample_size,subjects_json,cooccurrence_json FROM merchant_industry_benchmarks WHERE shop_domain=? ORDER BY created_ms DESC LIMIT 100").bind(shop).all()
   ]);
   return {prominence:prominenceMetrics(spans.results),industryFit:industryFitMetrics(industry.results),industryPanels:panels.results,brandPerception:brandPerceptionMetrics(attributes.results),
-    referrals:{rows:referrals.results,batches:batches.results,evidenceTier:"authorised_external"},
+    referrals:{rows:referrals.results,batches:batches.results,evidenceTiers:["authorised_ga4","manual_import"]},
     attributionRule:"Imported analytics, signed AgentReady journeys and verified platform orders remain separate evidence tiers and are never summed as identical proof."};
 }
