@@ -317,7 +317,7 @@ async function route(request:Request,env:Env):Promise<Response>{
 
   // Scanner Superset and Path to 100. The benchmark is public; merchant probes are
   // authenticated and test the connected canonical site rather than an arbitrary target.
-  if(request.method==="GET"&&path==="/api/readiness/benchmark")return json(benchmarkSummary());
+  if(request.method==="GET"&&path==="/api/readiness/benchmark"){const raw=url.searchParams.get("throughPhase"),phase=raw===null?Number.POSITIVE_INFINITY:Number(raw);return json(benchmarkSummary(Number.isInteger(phase)&&phase>=0?phase:Number.POSITIVE_INFINITY));}
   if(request.method==="POST"&&path==="/api/readiness/path-to-100"){
     const shop=await sessionShop(request,env);if(!shop)return json({error:"No connected Shopify session."},401);
     const profile=await getBusinessProfile(env,shop),target=String(profile?.primary_url||"");
