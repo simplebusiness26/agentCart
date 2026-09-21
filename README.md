@@ -1,6 +1,6 @@
 # AgentCart
 
-> Latest build status: [AgentReady Phases 18–29](docs/PHASES_18_29_IMPLEMENTATION_STATUS.md), including the Business Brain, AI Sales Agent, Scanner Superset, Path to 100, SEO/GEO growth loop and Peec-level analytics foundation.
+> Latest build status: [AgentReady Phases 30–32](docs/PHASES_30_32_IMPLEMENTATION_STATUS.md), following the completed [Phases 18–29](docs/PHASES_18_29_IMPLEMENTATION_STATUS.md).
 
 **Make your business ready for AI customers.**
 
@@ -67,8 +67,8 @@ returning a number nobody can verify.
 
 ## Status
 
-The application code through AgentReady Phase 17 is complete and tested
-(`npm run typecheck && npm test`; 724 tests). It is
+The credential-independent application code through AgentReady Phase 32 is complete and tested.
+It is
 **not yet deployed and not launch ready**: it needs a Cloudflare D1 database, a Shopify app and
 credentials, and a real development store to verify against.
 

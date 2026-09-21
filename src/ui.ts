@@ -102,6 +102,7 @@ export function dashboardPage(demo:boolean,shop?:string|null,pixelFailed=false){
     <button class="tab" data-tab="agents">AI Agents</button>
     <button class="tab" data-tab="sales">AI Sales</button>
     <button class="tab" data-tab="analytics">Analytics &amp; Growth</button>
+    <button class="tab" data-tab="commerce">Commerce &amp; Security</button>
     <button class="tab" data-tab="launch">Launch</button>
   </div>
   <div id="panel-overview" class="panel"><div class="empty">Loading…</div></div>
@@ -112,6 +113,7 @@ export function dashboardPage(demo:boolean,shop?:string|null,pixelFailed=false){
   <div id="panel-agents" class="panel" hidden><div class="empty">Loading agent readiness…</div></div>
   <div id="panel-sales" class="panel" hidden><div class="empty">Loading your Business Brain and AI salesperson…</div></div>
   <div id="panel-analytics" class="panel" hidden><div class="empty">Loading visibility, fanouts, sources and growth actions…</div></div>
+  <div id="panel-commerce" class="panel" hidden><div class="empty">Loading commerce standards, referral evidence and action security…</div></div>
   <div id="panel-launch" class="panel" hidden><div class="empty">Loading launch status…</div></div>
   </div></main><script>
 const demo=${demo?"true":"false"};
@@ -394,6 +396,30 @@ if(demo){
     document.querySelector('#makeFanouts').onclick=()=>{const prompt=document.querySelector('#fanoutPrompt').value;if(!prompt)return;
       getJSON('/api/analytics/fanouts/synthetic',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({prompt,createOpportunities:true})}).then(r=>{
         document.querySelector('#fanoutResult').textContent=(r.fanouts||[]).map(x=>x.query).join(' · ');});};
+  });
+
+  // ---- Market refresh (Phases 30-32) ----
+  Promise.allSettled([getJSON('/api/commerce/readiness'),getJSON('/api/analytics/market'),getJSON('/api/security'),getJSON('/api/analytics/ga4')])
+  .then(([commerceRes,marketRes,securityRes,gaRes])=>{
+    if(commerceRes.status!=='fulfilled')return signedOut('commerce','commerce standards and agent security');
+    const c=commerceRes.value,m=marketRes.status==='fulfilled'?marketRes.value:{},s=securityRes.status==='fulfilled'?securityRes.value:{assessments:[]},ga=gaRes.status==='fulfilled'?gaRes.value:{status:'not_connected'};
+    const feed=c.openAiFeed&&c.openAiFeed.summary||{},ucp=c.ucp||{},latestSecurity=(s.assessments||[])[0]||{};
+    const prominence=(m.prominence||[]).slice(0,5).map(x=>'<div class="finding"><span class="dot '+(x.stability==='measured'?'good':'warn')+'"></span><div><b>'+esc(x.subject)+'</b><div class="muted" style="font-size:12px">'+esc(x.stability)+' · '+num(x.sampleSize)+' answer(s)</div></div><div>'+((Number(x.prominence)||0)*100).toFixed(0)+'%</div></div>').join('');
+    const attributes=((m.brandPerception&&m.brandPerception.associations)||[]).slice(0,5).map(x=>'<div class="finding"><span class="dot '+(x.stability==='measured'?'good':'warn')+'"></span><div><b>'+esc(x.brand)+' · '+esc(x.attribute)+'</b><div class="muted" style="font-size:12px">Corpus '+num(x.brandSample)+' · '+esc(x.stability)+'</div></div><div>'+((Number(x.association)||0)*100).toFixed(0)+'%</div></div>').join('');
+    set('commerce','<div class="metrics"><div class="metric"><span class="muted">Native UCP</span><b>'+esc(ucp.status||'not checked')+'</b></div>'
+      +'<div class="metric"><span class="muted">OpenAI feed ready</span><b>'+num(feed.eligible)+' / '+num(feed.total)+'</b></div>'
+      +'<div class="metric"><span class="muted">GA4 evidence</span><b>'+esc(ga.status||'not connected')+'</b></div>'
+      +'<div class="metric"><span class="muted">Action security</span><b>'+esc(latestSecurity.status||'not checked')+'</b></div></div>'
+      +'<div class="two"><div class="card"><h3>Commerce standards</h3><p class="muted">UCP is observed per store. Feed readiness validates the nine core product fields but never uploads anything.</p>'
+      +'<div class="formRow"><button id="probeUcp" class="btn">Check native UCP</button><a class="btn" href="/api/commerce/openai-feed.jsonl">Preview OpenAI feed</a></div><div id="ucpResult" class="muted" style="margin-top:10px"></div></div>'
+      +'<div class="card"><h3>Authorised referrals</h3><p class="muted">GA4 sessions and revenue stay separate from signed journeys and verified orders, so revenue is never counted twice.</p>'
+      +(ga.status==='connected'?'<div class="chip">Connected · property '+esc(ga.propertyId||'not selected')+'</div>':'<a class="btn" href="/api/analytics/ga4/connect">Connect GA4</a>')+'</div></div>'
+      +'<div class="two"><div class="card"><h3>Answer prominence</h3>'+(prominence||'<div class="empty">Add answer evidence spans to measure honest prominence.</div>')+'</div>'
+      +'<div class="card"><h3>Brand attributes</h3>'+(attributes||'<div class="empty">No corpus-backed attribute evidence yet.</div>')+'</div></div>'
+      +'<div class="card" style="margin-top:16px"><h3>Action security</h3><p class="muted">Tool metadata and outputs are untrusted. Mutating tools need identity, narrow scope, approval, idempotency, rollback and verification evidence.</p>'
+      +'<div class="muted" style="font-size:12px">Security is applicability-gated and does not punish a simple brochure site.</div></div>');
+    document.querySelector('#probeUcp').onclick=()=>{document.querySelector('#probeUcp').disabled=true;getJSON('/api/commerce/ucp/probe',{method:'POST'}).then(r=>{
+      document.querySelector('#ucpResult').textContent=r.status+' · version '+(r.version||'not declared')+' · '+(r.current?'current 2026-08-25':'not current');}).catch(e=>{document.querySelector('#ucpResult').textContent=e.message;}).finally(()=>{document.querySelector('#probeUcp').disabled=false;});};
   });
 
   // ---- Launch: the one authoritative answer, never softened by a green test suite ----

@@ -22,7 +22,7 @@ import { buildOutcome } from "./outcome";
 import { consumeOAuthState, countCustomerEvents, deleteShop, getDashboardWindows, getShop, insertEvent, logComplianceRequest, putOAuthState, rateLimit, redactCustomer, saveOrder, saveShop, setIngestToken, updatePixelId } from "./db";
 import { createWebPixel, encryptToken, exchangeCode, installUrl, normalizeOrderId, pixelSettings, randomState, parseSession, safeCompare, sessionCookie, validShop, verifyOAuthHmac, verifyWebhookHmac, webPixelUpdate } from "./shopify";
 import { agentReadyPage, aiProfilePage, dashboardPage, errorPage, homePage, privacyPage, setupPage, sponsoredAgentDemoPage, termsPage } from "./ui";
-import { ensureHostedJourneyTargets, reliabilitySummary, runAgentPulsePass, runPulseTarget } from "./agentpulse";
+import { ensureHostedJourneyTargets, ensurePublicMcpTarget, reliabilitySummary, runAgentPulsePass, runPulseTarget } from "./agentpulse";
 import { factByKey, queueStaleRegistryFacts, registrySnapshot, STANDARDS_REGISTRY_VERSION } from "./standards/registry";
 import { mcpHttpStatus } from "./mcp/compat";
 import { addQuery, aeoReport, listCompetitors, listQueries, recordManualObservation, setCompetitors, suggestQueries } from "./aeo";
@@ -35,6 +35,10 @@ import { benchmarkSummary, buildPathTo100, probeEmergingStandards } from "./read
 import { createContentBrief, groundedDraft, listGrowthOpportunities, opportunitiesFromQuestions, saveGrowthOpportunity } from "./growth";
 import { ANALYTICS_EXPORT_COLUMNS, analyticsCsv, analyticsReport, createAnalyticsAction, evaluateShopping, fanoutsToGrowthOpportunities, perceptionFromResponse, recordCrawlObservation, recordPerception, recordPromptRun, recordShoppingObservation, syntheticFanouts } from "./analytics";
 import { handleAnalyticsMcp } from "./analytics/mcp";
+import {importAuthorisedReferrals,marketAnalyticsReport} from "./analytics/market";
+import {completeGa4OAuth,configureGa4Property,ga4AuthorizationUrl,ga4ConnectionStatus,importGa4Report} from "./analytics/ga4";
+import {commerceReadiness,feedJsonl,openAiCommerceFeed,probeNativeUcp,saveFeedExport,saveLighthouseAgenticReport} from "./commerce";
+import {assessAgentInteractionSecurity,saveAgentSecurityAssessment,securityReport} from "./security/agent";
 
 const html=(body:string,status=200,headers:HeadersInit={})=>new Response(body,{status,headers:{"content-type":"text/html; charset=utf-8","x-content-type-options":"nosniff","referrer-policy":"strict-origin-when-cross-origin","permissions-policy":"camera=(), microphone=(), geolocation=()","content-security-policy":"default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; connect-src 'self'; form-action 'self'; frame-ancestors 'none'; base-uri 'none'",...headers}});
 const json=(data:unknown,status=200,headers:HeadersInit={})=>new Response(JSON.stringify(data),{status,headers:{"content-type":"application/json; charset=utf-8","cache-control":"no-store",...headers}});
@@ -388,6 +392,87 @@ async function route(request:Request,env:Env):Promise<Response>{
       if(result.action)await createAnalyticsAction(env,shop,{sourceType:"shopping_price_mismatch",sourceId:id,route:"catalog",title:result.action.title,evidence:result.action.evidence,expectedMetric:"quoted_price_accuracy",confidence:1,owner:"merchant_or_platform",verification:result.action.verification,rollbackAvailable:false});
       return json({id,result},201);}
     catch(e){return json({error:e instanceof Error?e.message:"Could not record shopping evidence."},400);}
+  }
+  // Phases 30-32: current commerce profiles and feeds, answer-level market analytics,
+  // authorised GA4 evidence, and applicability-gated tool security. No route below performs
+  // a purchase, uploads a provider feed or stores a provider credential in plaintext.
+  if(request.method==="GET"&&path==="/api/commerce/readiness"){
+    const shop=await sessionShop(request,env);if(!shop)return json({error:"No connected Shopify session."},401);
+    try{return json(await commerceReadiness(env,shop,await buildBusinessBrain(env,shop)));}
+    catch(e){return json({error:e instanceof Error?e.message:"Could not build commerce readiness."},409);}
+  }
+  if(request.method==="POST"&&path==="/api/commerce/ucp/probe"){
+    const shop=await sessionShop(request,env);if(!shop)return json({error:"No connected Shopify session."},401);
+    const gate=await rateLimit(env,"ucp_probe",shop,3,300000).catch(()=>({ok:true,retryAfter:0}));
+    if(!gate.ok)return json({error:"UCP discovery was run very recently."},429,{"retry-after":String(gate.retryAfter)});
+    const profile=await getBusinessProfile(env,shop),target=String(profile?.primary_url||"");if(!target)return json({error:"Sync a public business website first."},409);
+    try{return json(await probeNativeUcp(env,shop,target));}catch(e){return json({error:e instanceof Error?e.message:"UCP discovery failed."},400);}
+  }
+  if(request.method==="POST"&&path==="/api/commerce/ucp/negotiate"){
+    const shop=await sessionShop(request,env);if(!shop)return json({error:"No connected Shopify session."},401);const body=await request.json<any>().catch(()=>({}));
+    if(body.optIn!==true||body.developmentStore!==true)return json({error:"UCP cart/checkout negotiation is restricted to an explicitly opted-in development store."},403);
+    const profile=await getBusinessProfile(env,shop),site=String(profile?.primary_url||"");if(!site)return json({error:"Sync a public development store first."},409);
+    const observed=await env.DB.prepare("SELECT services_json FROM ucp_observations WHERE shop_domain=? AND status IN ('observed_current','observed_other_version') ORDER BY checked_ms DESC LIMIT 1").bind(shop).first<any>();
+    if(!observed)return json({error:"Run native UCP discovery before negotiation."},409);
+    let endpoint="";try{const services=JSON.parse(String(observed.services_json||"{}"));for(const service of Object.values(services) as any[]){if(service&&typeof service.endpoint==="string"&&String(service.transport||"").toLowerCase().includes("mcp")){endpoint=service.endpoint;break;}}}catch{/* invalid stored evidence */}
+    if(!endpoint)return json({error:"The observed UCP profile does not publish an MCP transport endpoint."},409);
+    try{const target=new URL(endpoint),origin=new URL(site).origin;if(target.protocol!=="https:"||target.origin!==origin)return json({error:"The UCP MCP endpoint must use HTTPS on the connected store origin."},400);
+      const pulse=await ensurePublicMcpTarget(env,{shop,label:"Shopify native UCP negotiation",endpoint:target.toString(),journey:"shopify_native_ucp_negotiation"});
+      if(!pulse)return json({error:"Could not prepare the negotiation target."},500);const run=await runPulseTarget(env,pulse.id);
+      return json({run,note:"This opt-in development-store check lists schemas and invokes only an explicitly read-only zero-input tool when available. It never creates a cart, checkout or order."});}
+    catch(e){return json({error:e instanceof Error?e.message:"UCP negotiation failed."},400);}
+  }
+  if(request.method==="GET"&&path==="/api/commerce/openai-feed.jsonl"){
+    const shop=await sessionShop(request,env);if(!shop)return json({error:"No connected Shopify session."},401);
+    try{const feed=openAiCommerceFeed(await buildBusinessBrain(env,shop));await saveFeedExport(env,shop,feed);
+      return new Response(feedJsonl(feed),{headers:{"content-type":"application/x-ndjson; charset=utf-8","content-disposition":"attachment; filename=openai-commerce-feed-preview.jsonl","cache-control":"no-store","x-agentready-uploaded":"false"}});}
+    catch(e){return json({error:e instanceof Error?e.message:"Could not build the feed preview."},409);}
+  }
+  if(request.method==="POST"&&path==="/api/commerce/lighthouse/import"){
+    const shop=await sessionShop(request,env);if(!shop)return json({error:"No connected Shopify session."},401);
+    const body=await request.json<unknown>().catch(()=>null);try{return json(await saveLighthouseAgenticReport(env,shop,body),201);}
+    catch(e){return json({error:e instanceof Error?e.message:"Could not import Lighthouse evidence."},400);}
+  }
+  if(request.method==="GET"&&path==="/api/analytics/market"){
+    const shop=await sessionShop(request,env);if(!shop)return json({error:"No connected Shopify session."},401);
+    return json(await marketAnalyticsReport(env,shop));
+  }
+  if(request.method==="POST"&&path==="/api/analytics/referrals/import"){
+    const shop=await sessionShop(request,env);if(!shop)return json({error:"No connected Shopify session."},401);
+    const body=await request.json<any>().catch(()=>({}));if(body.authorized!==true)return json({error:"Confirm that this analytics import is authorised."},403);
+    try{return json(await importAuthorisedReferrals(env,shop,{provider:"ga4",windowStart:String(body.windowStart||""),windowEnd:String(body.windowEnd||""),rows:Array.isArray(body.rows)?body.rows:[]}),201);}
+    catch(e){return json({error:e instanceof Error?e.message:"Could not import referral evidence."},400);}
+  }
+  if(request.method==="GET"&&path==="/api/analytics/ga4"){
+    const shop=await sessionShop(request,env);if(!shop)return json({error:"No connected Shopify session."},401);return json(await ga4ConnectionStatus(env,shop));
+  }
+  if(request.method==="GET"&&path==="/api/analytics/ga4/connect"){
+    const shop=await sessionShop(request,env);if(!shop)return json({error:"No connected Shopify session."},401);
+    try{return Response.redirect(await ga4AuthorizationUrl(env,shop),302);}catch(e){return json({error:e instanceof Error?e.message:"GA4 OAuth is unavailable."},503);}
+  }
+  if(request.method==="GET"&&path==="/api/analytics/ga4/callback"){
+    const state=url.searchParams.get("state")||"",code=url.searchParams.get("code")||"";if(!state||!code)return html(errorPage("GA4 connection was incomplete","Google did not return the expected authorization details.","/dashboard","Back to dashboard"),400);
+    try{await completeGa4OAuth(env,state,code);return Response.redirect(`${env.APP_URL}/dashboard?ga4=connected`,302);}
+    catch(e){return html(errorPage("GA4 could not be connected",e instanceof Error?e.message:"The authorization failed.","/dashboard","Back to dashboard"),400);}
+  }
+  if(request.method==="POST"&&path==="/api/analytics/ga4/property"){
+    const shop=await sessionShop(request,env);if(!shop)return json({error:"No connected Shopify session."},401);const body=await request.json<any>().catch(()=>({}));
+    try{return json(await configureGa4Property(env,shop,String(body.propertyId||"")));}catch(e){return json({error:e instanceof Error?e.message:"Could not select that GA4 property."},400);}
+  }
+  if(request.method==="POST"&&path==="/api/analytics/ga4/import"){
+    const shop=await sessionShop(request,env);if(!shop)return json({error:"No connected Shopify session."},401);const body=await request.json<any>().catch(()=>({}));
+    const gate=await rateLimit(env,"ga4_import",shop,2,300000).catch(()=>({ok:true,retryAfter:0}));if(!gate.ok)return json({error:"GA4 was imported very recently."},429,{"retry-after":String(gate.retryAfter)});
+    try{return json(await importGa4Report(env,shop,{startDate:String(body.startDate||""),endDate:String(body.endDate||"")}));}
+    catch(e){return json({error:e instanceof Error?e.message:"GA4 import failed."},400);}
+  }
+  if(request.method==="GET"&&path==="/api/security"){
+    const shop=await sessionShop(request,env);if(!shop)return json({error:"No connected Shopify session."},401);return json(await securityReport(env,shop));
+  }
+  if(request.method==="POST"&&path==="/api/security/assess"){
+    const shop=await sessionShop(request,env);if(!shop)return json({error:"No connected Shopify session."},401);const body=await request.json<any>().catch(()=>({}));
+    if(!Array.isArray(body.tools))return json({error:"Supply an array of discovered tool definitions."},400);
+    const assessment=assessAgentInteractionSecurity({tools:body.tools,outputText:body.outputText?String(body.outputText):undefined,identity:body.identity?String(body.identity):undefined});
+    return json(await saveAgentSecurityAssessment(env,shop,String(body.targetLabel||"Imported tool surface"),assessment),201);
   }
   if(request.method==="GET"&&path==="/api/analytics/export.csv"){
     const shop=await sessionShop(request,env);if(!shop)return json({error:"No connected Shopify session."},401);

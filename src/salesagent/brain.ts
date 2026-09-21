@@ -7,6 +7,7 @@ function parseObject(value:unknown):Record<string,unknown>{
 }
 function text(value:unknown){return value==null?"":String(value);}
 function numberOrNull(value:unknown){const n=Number(value);return value==null||!Number.isFinite(n)?null:n;}
+function parseArray<T=unknown>(value:unknown):T[]{try{const out=JSON.parse(String(value||"[]"));return Array.isArray(out)?out:[];}catch{return [];}}
 function stableId(value:string){let h=2166136261;for(let i=0;i<value.length;i++){h^=value.charCodeAt(i);h=Math.imul(h,16777619);}return (h>>>0).toString(36);}
 
 function fact(key:string,type:BusinessFact["type"],value:unknown,source:string,verifiedMs:number,options:Partial<BusinessFact>={}):BusinessFact{
@@ -23,6 +24,7 @@ export async function buildBusinessBrain(env:Env,shop:string,nowMs=Date.now()):P
   const items:BrainItem[]=rows.results.map(row=>({
     id:text(row.item_id),handle:text(row.handle),title:text(row.title),description:text(row.description),
     category:text(row.product_type),vendor:text(row.vendor),url:text(row.url),
+    imageUrl:text(row.image_url),imageAlt:text(row.image_alt),variants:parseArray(row.variants_json),
     priceMin:numberOrNull(row.price_min),priceMax:numberOrNull(row.price_max),currency:row.currency?text(row.currency):null,
     available:!!Number(row.available),syncedMs:Number(row.synced_ms||synced),source:"connected_catalog"
   }));
@@ -65,4 +67,3 @@ export async function syncBusinessFacts(env:Env,brain:BusinessBrain){
 }
 
 export function publicFacts(brain:BusinessBrain){return brain.facts.filter(f=>f.publicSafe&&f.confidence!=="unknown");}
-

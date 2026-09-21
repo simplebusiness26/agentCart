@@ -59,6 +59,9 @@ export async function deleteShop(env:Env,shop:string){
     env.DB.prepare("DELETE FROM growth_measurements WHERE shop_domain=?").bind(shop),
     env.DB.prepare("DELETE FROM growth_opportunities WHERE shop_domain=?").bind(shop),
     env.DB.prepare("DELETE FROM remediation_paths WHERE shop_domain=?").bind(shop),
+    env.DB.prepare(`DELETE FROM visibility_evidence_spans WHERE run_id IN
+      (SELECT id FROM visibility_prompt_runs WHERE shop_domain=?)`).bind(shop),
+    env.DB.prepare("DELETE FROM brand_attribute_observations WHERE shop_domain=?").bind(shop),
     env.DB.prepare(`DELETE FROM visibility_chat_features WHERE run_id IN
       (SELECT id FROM visibility_prompt_runs WHERE shop_domain=?)`).bind(shop),
     env.DB.prepare(`DELETE FROM visibility_citations WHERE run_id IN
@@ -72,6 +75,14 @@ export async function deleteShop(env:Env,shop:string){
     env.DB.prepare("DELETE FROM perception_observations WHERE shop_domain=?").bind(shop),
     env.DB.prepare("DELETE FROM shopping_observations WHERE shop_domain=?").bind(shop),
     env.DB.prepare("DELETE FROM analytics_actions WHERE shop_domain=?").bind(shop),
+    env.DB.prepare("DELETE FROM ucp_observations WHERE shop_domain=?").bind(shop),
+    env.DB.prepare("DELETE FROM commerce_feed_exports WHERE shop_domain=?").bind(shop),
+    env.DB.prepare("DELETE FROM agentic_browser_audits WHERE shop_domain=?").bind(shop),
+    env.DB.prepare("DELETE FROM analytics_referrals WHERE shop_domain=?").bind(shop),
+    env.DB.prepare("DELETE FROM analytics_import_batches WHERE shop_domain=?").bind(shop),
+    env.DB.prepare("DELETE FROM analytics_connections WHERE shop_domain=?").bind(shop),
+    env.DB.prepare("DELETE FROM provider_oauth_states WHERE shop_domain=?").bind(shop),
+    env.DB.prepare("DELETE FROM agent_security_assessments WHERE shop_domain=?").bind(shop),
     env.DB.prepare(`DELETE FROM agentpulse_steps WHERE run_id IN
       (SELECT id FROM agentpulse_runs WHERE shop_domain=?)`).bind(shop),
     env.DB.prepare(`DELETE FROM agentpulse_incidents WHERE target_id IN

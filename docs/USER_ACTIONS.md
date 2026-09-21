@@ -1,5 +1,23 @@
 # What the owner still needs to do
 
+## Phases 30–32 production completion
+
+The code-ready status and honest limits are documented in
+`docs/PHASES_30_32_IMPLEMENTATION_STATUS.md`. After merging and deploying this phase:
+
+1. Run `npm run db:migrate:remote` and confirm migration `0021_phases_30_32.sql` applied.
+2. Deploy the Worker, connect a Shopify development store and press **Check native UCP** in
+   **Commerce & Security**. The observed profile—not Shopify assumptions—must determine support.
+3. Only on an explicitly opted-in development store, run the UCP negotiation route. It lists tools
+   and permits only a declared read-only zero-input call; it never creates a cart or checkout.
+4. Download and inspect the OpenAI feed preview. AgentReady does not upload it.
+5. If GA4 evidence is wanted, configure Google OAuth secrets, connect the merchant's property and
+   run an authorised import. Keep GA4, signed journeys and verified orders as separate evidence.
+6. Import a real Lighthouse Agentic Browsing report when the runtime supports that experimental
+   category. Its fraction must remain separate from the AgentReady 0–100 score.
+7. Run security assessment against every authorised MCP/WebMCP integration and resolve failed
+   injection or approval findings before calling it action-ready.
+
 ## Phases 18–29 production completion
 
 The credential-independent implementation is documented in

@@ -1,4 +1,5 @@
 import type {AuthorizationFinding} from "../standards/authorization";
+import type {AgentSecurityFinding} from "../security/agent";
 
 export type PulseRunStatus="pass"|"fail"|"blocked"|"unsupported";
 export type PulseStepName="discover"|"connect"|"authenticate"|"invoke"|"validate"|"evidence";
@@ -51,6 +52,7 @@ export interface PulseRun {
     advertisedExtensions:string[];
     capabilities?:string[];
     authorization:AuthorizationFinding[];
+    security:AgentSecurityFinding[];
     note:string;
   };
   steps:PulseStep[];

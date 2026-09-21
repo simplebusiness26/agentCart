@@ -1,5 +1,7 @@
 # Agent Ready market refresh — 2026-09-21
 
+> **Implementation update — 2026-09-21:** The credential-independent Phase 30–32 foundations are implemented on `codex/phases-30-32`: native UCP observation, OpenAI feed readiness, Lighthouse evidence import, answer prominence, category panels, brand-attribute analytics, GA4 OAuth/import boundaries and applicability-gated tool security. External connections and production evidence remain separate. See `docs/PHASES_30_32_IMPLEMENTATION_STATUS.md`.
+
 This is a delta review against the Phase 18–29 implementation completed from the 2026-09-18
 benchmark. It does **not** invalidate completed phases. It records standards/provider changes and
 new competitor capabilities that appeared or were confirmed after that benchmark.

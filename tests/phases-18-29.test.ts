@@ -45,13 +45,13 @@ describe("Phases 18-21 Business Brain and Sales Agent",()=>{
 });
 
 describe("Scanner Superset and Path to 100",()=>{
-  it("preserves the completed Phase 29 benchmark while exposing new market blockers",()=>{
+  it("preserves the completed Phase 29 benchmark and completes the Phase 30-32 refresh",()=>{
     const phase29=benchmarkSummary(29),current=benchmarkSummary();
     expect(phase29.capabilities.filter(c=>c.state==="planned")).toEqual([]);
     expect(phase29.milestoneReady).toBe(true);expect(phase29.peecCapabilities).toBeGreaterThanOrEqual(28);
-    expect(current.milestoneReady).toBe(false);
-    expect(current.capabilities.filter(c=>c.state==="planned").map(c=>c.key)).toEqual(expect.arrayContaining([
-      "prominence","industry_fit","brand_attribute_association","attribute_market_prominence","ga4_referral_dimensions"
+    expect(current.milestoneReady).toBe(true);expect(current.capabilities.filter(c=>c.state==="planned")).toEqual([]);
+    expect(current.capabilities.map(c=>c.key)).toEqual(expect.arrayContaining([
+      "prominence","industry_fit","brand_attribute_association","attribute_market_prominence","ga4_referral_dimensions","native_ucp","agent_security"
     ]));
     expect(BENCHMARK_CAPABILITIES.some(c=>c.benchmark==="Cloudflare")).toBe(true);
   });
