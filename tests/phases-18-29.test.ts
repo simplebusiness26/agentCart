@@ -45,13 +45,18 @@ describe("Phases 18-21 Business Brain and Sales Agent",()=>{
 });
 
 describe("Scanner Superset and Path to 100",()=>{
-  it("preserves the completed Phase 29 benchmark and completes the Phase 30-32 refresh",()=>{
-    const phase29=benchmarkSummary(29),current=benchmarkSummary();
+  it("preserves completed phase gates while exposing newer market work",()=>{
+    const phase29=benchmarkSummary(29),phase32=benchmarkSummary(32),current=benchmarkSummary();
     expect(phase29.capabilities.filter(c=>c.state==="planned")).toEqual([]);
     expect(phase29.milestoneReady).toBe(true);expect(phase29.peecCapabilities).toBeGreaterThanOrEqual(28);
-    expect(current.milestoneReady).toBe(true);expect(current.capabilities.filter(c=>c.state==="planned")).toEqual([]);
+    expect(phase32.capabilities.filter(c=>c.state==="planned")).toEqual([]);expect(phase32.milestoneReady).toBe(true);
+    expect(current.milestoneReady).toBe(false);
+    expect(current.capabilities.filter(c=>c.state==="planned").map(c=>c.key)).toEqual(expect.arrayContaining([
+      "merchant_ai_performance","conversational_attributes","meta_agentic_channel","action_mapper","installer","runtime_monitoring","webmcp_reuse"
+    ]));
     expect(current.capabilities.map(c=>c.key)).toEqual(expect.arrayContaining([
-      "prominence","industry_fit","brand_attribute_association","attribute_market_prominence","ga4_referral_dimensions","native_ucp","agent_security"
+      "prominence","industry_fit","brand_attribute_association","attribute_market_prominence","ga4_referral_dimensions","native_ucp","agent_security",
+      "ai_shelf_recommendation_share","source_mix","sku_recommendation"
     ]));
     expect(BENCHMARK_CAPABILITIES.some(c=>c.benchmark==="Cloudflare")).toBe(true);
   });
