@@ -57,7 +57,7 @@ export async function probeEmergingStandards(input:string):Promise<EmergingProbe
     const links=res.headers.get("link")||"";
     out.push({key:"link_headers",label:"Useful Link headers",url:root.toString(),status:res.status,state:links?"pass":"fail",detail:links?"One or more Link relations were advertised.":"No Link relations were advertised.",evidence:links.slice(0,1000)||"No Link header"});
   }catch(e){out.push({key:"markdown_negotiation",label:"Markdown content negotiation",state:"unknown",detail:"The canonical page could not be tested.",evidence:e instanceof Error?e.message:"Probe failed."});}
-  out.push({key:"webmcp_runtime",label:"WebMCP runtime",state:"unknown",detail:"A static Worker fetch cannot prove a browser navigator API. Run the browser adapter to determine this capability.",evidence:"Runtime evidence required"});
+  out.push({key:"webmcp_runtime",label:"WebMCP runtime",state:"unknown",detail:"A static Worker fetch cannot prove the browser document.modelContext WebMCP runtime. Run a compatible browser adapter to determine this capability.",evidence:"Runtime evidence required"});
   out.push({key:"dns_aid",label:"DNS-AID",state:"unknown",detail:"DNS-AID remains version-gated until an authoritative current registry entry is configured.",evidence:"Versioned DNS adapter required"});
   return out;
 }
