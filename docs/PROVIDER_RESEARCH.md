@@ -66,12 +66,12 @@ reuse the same evidence without contaminating the core readiness score.
 Sources: <https://ucp.dev/documentation/core-concepts/>, <https://shopify.engineering/ucp>,
 <https://github.com/universal-commerce-protocol/ucp>.
 
-Discovery is a JSON manifest at `/.well-known/ucp`:
+The current verified UCP release is `2026-08-25`. Discovery is a JSON manifest at `/.well-known/ucp`:
 
 ```json
 {
   "ucp": {
-    "version": "draft",
+    "version": "2026-08-25",
     "services":         { "dev.ucp.shopping": { "version": "...", "transport": "rest|mcp|a2a|embedded", "endpoint": "...", "schema": "...", "spec": "..." } },
     "capabilities":     { "dev.ucp.shopping.checkout": [ { "version": "...", "schema": "...", "spec": "...", "extends": "..." } ] },
     "payment_handlers": { "<reverse.domain.key>": { "id": "...", "version": "...", "schema": "...", "spec": "..." } }
