@@ -166,7 +166,7 @@ describe('current OpenAI crawler policy',()=>{
     const user=openai.crawlers.find(a=>a.token==='chatgpt-user')!;
     expect(ads.purpose).toBe('advertising');expect(isScoredPurpose(ads.purpose)).toBe(false);
     expect(user.respectsRobots).toBe(false);
-    const report=providerAccess('User-agent: ChatGPT-User\\nDisallow: /').find(p=>p.provider==='openai')!;
+    const report=providerAccess('User-agent: ChatGPT-User\nDisallow: /').find(p=>p.provider==='openai')!;
     expect(report.agenticFetch).toBe('unknown');
     expect(report.notes.join(' ')).toContain('stated preference');
   });
