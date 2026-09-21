@@ -1,4 +1,5 @@
 import {assessAuthorizationReadiness} from "../standards/authorization";
+import {assessAgentInteractionSecurity} from "../security/agent";
 import {CURRENT_MCP_VERSION,LEGACY_MCP_VERSIONS} from "../standards/registry";
 import type {PulseRun,PulseStep,PulseTarget} from "./types";
 
@@ -159,13 +160,14 @@ export async function runMcpSynthetic(target:PulseTarget,fetcher:Fetcher=fetch,c
     const completedMs=clock();
     const authorization=assessAuthorizationReadiness({authMode:target.auth_mode,tools,
       observedText,credentialsSupplied:false});
+    const security=assessAgentInteractionSecurity({tools,outputText:observedText,identity:target.label});
     step(steps,"evidence",status==="pass"?"pass":status==="blocked"?"blocked":"fail",0,
       "Stored status, timings, error category and schema fingerprint only; no tool result, credential or customer data was retained.");
     return {id:nowId(),targetId:target.id,shop:target.shop_domain,protocol:"mcp",journey:target.journey,
       status,era,protocolVersion,startedMs,completedMs,latencyMs:Math.max(0,completedMs-startedMs),
       errorCategory,errorCode,schemaFingerprint,toolCount,
       evidence:{versionBasis:protocolVersion?"verified":"unknown",
-        toolsList:{paginated,ttlMs,cacheScope},advertisedExtensions,capabilities:observedCapabilities,authorization,
+        toolsList:{paginated,ttlMs,cacheScope},advertisedExtensions,capabilities:observedCapabilities,authorization,security:security.findings,
         note:"A successful synthetic run proves this configured journey worked at this time. It is not an SLA and does not prove every client or tool works."},steps};
   };
 

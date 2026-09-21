@@ -69,7 +69,15 @@ describe('authenticated routes reject anonymous callers',()=>{
     ['/api/readiness/path-to-100','POST'],['/api/growth','GET'],['/api/growth/brief','POST'],
     ['/api/analytics','GET'],['/api/analytics/prompt-runs','POST'],['/api/analytics/fanouts/synthetic','POST'],
     ['/api/analytics/crawlers','POST'],['/api/analytics/perception','POST'],['/api/analytics/shopping','POST'],
-    ['/api/analytics/export.csv','GET'],['/api/analytics/mcp','POST']
+    ['/api/analytics/export.csv','GET'],['/api/analytics/mcp','POST'],
+    ['/api/commerce/readiness','GET'],['/api/commerce/ucp/probe','POST'],['/api/commerce/ucp/negotiate','POST'],
+    ['/api/commerce/openai-feed.jsonl','GET'],['/api/commerce/lighthouse/import','POST'],
+    ['/api/commerce/ads-measurement/assess','POST'],
+    ['/api/analytics/market','GET'],['/api/analytics/referrals/import','POST'],['/api/analytics/ga4','GET'],
+    ['/api/analytics/ga4/connect','GET'],['/api/analytics/ga4/property','POST'],['/api/analytics/ga4/import','POST'],
+    ['/api/security','GET'],['/api/security/assess','POST'],
+    ['/api/commerce/channels','GET'],['/api/commerce/merchant-ai/import','POST'],['/api/commerce/conversational-products','GET'],['/api/commerce/shopify-channels/import','POST'],
+    ['/api/webmcp','GET'],['/api/webmcp/plan','POST'],['/api/webmcp/manifest','GET'],['/api/webmcp/installation','POST'],['/api/webmcp/runtime/import','POST']
   ])('%s %s returns 401',async(path,method)=>{
     const res=await worker.fetch(new Request(`https://agentcart.example${path}`,{method}),env);
     expect(res.status).toBe(401);

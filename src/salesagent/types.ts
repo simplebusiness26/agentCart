@@ -16,6 +16,8 @@ export interface BusinessFact {
 export interface BrainItem {
   id:string;handle:string;title:string;description:string;category:string;vendor:string;
   url:string;priceMin:number|null;priceMax:number|null;currency:string|null;available:boolean;
+  imageUrl?:string;imageAlt?:string;
+  variants?:Array<{id:string;title:string;price:number|null;available:boolean;sku:string}>;
   syncedMs:number;source:string;
 }
 
@@ -70,4 +72,3 @@ export interface ConversationEvaluation {
 }
 
 export type ChannelState="demo"|"provider_not_available"|"advertiser_not_eligible"|"ready_for_provider"|"provider_onboarding_required"|"active"|"degraded"|"unknown";
-

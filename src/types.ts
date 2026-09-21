@@ -5,6 +5,9 @@ export interface Env {
   SHOPIFY_API_KEY: string;
   SHOPIFY_API_SECRET: string;
   TOKEN_ENCRYPTION_KEY: string;
+  BUILD_SHA?: string;
+  GOOGLE_CLIENT_ID?: string;
+  GOOGLE_CLIENT_SECRET?: string;
 }
 
 export interface PixelEventPayload {

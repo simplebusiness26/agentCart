@@ -43,7 +43,7 @@ export async function runHttpSynthetic(target:PulseTarget,fetcher:Fetcher=fetch,
       status,era:null,protocolVersion:null,startedMs,completedMs,latencyMs:Math.max(0,completedMs-startedMs),
       errorCategory,errorCode,schemaFingerprint:shape,toolCount:null,
       evidence:{versionBasis:"unknown",toolsList:{paginated:false,ttlMs:null,cacheScope:null},
-        advertisedExtensions:[],authorization:[],note},steps};
+        advertisedExtensions:[],authorization:[],security:[],note},steps};
   };
   let url:URL;
   try{url=new URL(target.endpoint);}

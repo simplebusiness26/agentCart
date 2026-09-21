@@ -60,13 +60,15 @@ describe('public routes',()=>{
   it('reports health',async()=>{
     const res=await get('/health');
     expect(res.status).toBe(200);
-    expect((await res.json() as any).ok).toBe(true);
+    const body=await res.json() as any;expect(body.ok).toBe(true);expect(body).toHaveProperty('buildCommit');
   });
   it('publishes historical and current scanner benchmarks without merchant data',async()=>{
     const phase29=await get('/api/readiness/benchmark?throughPhase=29');expect(phase29.status).toBe(200);
     const oldBody:any=await phase29.json();expect(oldBody.peecCapabilities).toBeGreaterThanOrEqual(28);expect(oldBody.releaseBlockers).toBe(0);expect(oldBody.milestoneReady).toBe(true);
+    const phase32=await get('/api/readiness/benchmark?throughPhase=32');expect(phase32.status).toBe(200);
+    const phase32Body:any=await phase32.json();expect(phase32Body.releaseBlockers).toBe(0);expect(phase32Body.milestoneReady).toBe(true);
     const current=await get('/api/readiness/benchmark');expect(current.status).toBe(200);
-    const currentBody:any=await current.json();expect(currentBody.releaseBlockers).toBeGreaterThan(0);expect(currentBody.milestoneReady).toBe(false);expect(currentBody.scope).toBe('current_market');
+    const currentBody:any=await current.json();expect(currentBody.releaseBlockers).toBe(0);expect(currentBody.milestoneReady).toBe(true);expect(currentBody.scope).toBe('current_market');
   });
   it('404s an unknown path',async()=>{
     expect((await get('/nope')).status).toBe(404);

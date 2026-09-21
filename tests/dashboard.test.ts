@@ -23,7 +23,7 @@ const page=()=>dashboardPage(false);
 describe('dashboard reads field names the APIs actually emit',()=>{
   it('renders every tab it declares',()=>{
     const html=page();
-    for(const tab of ['overview','ready','fixes','layer','traffic','agents','sales','analytics','launch'])
+    for(const tab of ['overview','ready','fixes','layer','traffic','agents','sales','analytics','commerce','launch'])
       expect(html,tab).toContain('data-tab="'+tab+'"'),
       expect(html,tab).toContain('id="panel-'+tab+'"');
   });
@@ -36,7 +36,7 @@ describe('dashboard reads field names the APIs actually emit',()=>{
 
   it('wires the Phase 18-29 merchant surfaces to authenticated APIs',()=>{
     const html=page();
-    for(const endpoint of ['/api/business-brain','/api/sales-agent','/api/analytics','/api/growth','/api/readiness/benchmark'])
+    for(const endpoint of ['/api/business-brain','/api/sales-agent','/api/analytics','/api/growth','/api/readiness/benchmark','/api/commerce/readiness','/api/security','/api/analytics/ga4'])
       expect(html,endpoint).toContain(endpoint);
     expect(html).toContain('observed and synthetic separate');
     expect(html).toContain('Ready means technically prepared');

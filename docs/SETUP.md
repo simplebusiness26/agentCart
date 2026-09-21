@@ -1,6 +1,6 @@
 # AgentCart setup and deployment
 
-## Phase 18–29 database upgrade
+## Phase 18–35 database upgrade
 
 The normal D1 migration command also applies the non-destructive Phase 18–29 migrations:
 
@@ -9,7 +9,11 @@ npm run db:migrate:remote
 ```
 
 This creates the Business Brain, Sales Agent, conversation-test, growth/content,
-visibility/fanout/source/citation, crawler/perception, shopping and analytics-action tables.
+visibility/fanout/source/citation, crawler/perception, shopping and analytics-action tables,
+plus migration `0021` for current UCP observations, commerce-feed previews, Lighthouse evidence,
+prominence/industry/brand-attribute analytics, GA4 referral imports and tool-security assessments.
+Migration `0022` adds merchant-isolated benchmark panels, native AI-channel evidence and reversible
+WebMCP planning/runtime records. Apply both before Phase 30–35 production verification.
 Do not mark the upgrade complete until the command has run against the production D1 binding.
 
 AgentCart is built to validate the product on free tiers first. The application is a Cloudflare Worker with D1 storage plus a Shopify Web Pixel extension.
@@ -27,6 +31,9 @@ npx wrangler d1 create agentcart
 ```
 
 Cloudflare will return a database ID. Replace `REPLACE_WITH_D1_DATABASE_ID` in `wrangler.toml` with that ID.
+
+Set `BUILD_SHA` in the production Worker environment to the exact Git commit being deployed. The
+public `/health` response exposes this non-secret value so deployment evidence is unambiguous.
 
 Apply the database schema:
 
@@ -111,6 +118,18 @@ npx wrangler secret put TOKEN_ENCRYPTION_KEY
 ```
 
 For `TOKEN_ENCRYPTION_KEY`, use a long random value. It protects Shopify offline access tokens before they are stored in D1.
+
+GA4 referrals are optional. To enable the **Connect GA4** button, create a Google OAuth web client
+whose redirect URI is `${APP_URL}/api/analytics/ga4/callback`, then add:
+
+```bash
+npx wrangler secret put GOOGLE_CLIENT_ID
+npx wrangler secret put GOOGLE_CLIENT_SECRET
+```
+
+The Google refresh token is encrypted with `TOKEN_ENCRYPTION_KEY`. AgentReady requests read-only
+Analytics scope, imports only referral dimensions, and never adds imported GA revenue to verified
+Shopify order revenue.
 
 ## 6. Deploy the Shopify Web Pixel
 

@@ -1,20 +1,26 @@
 import type {Env} from "../types";
 import type {BusinessBrain} from "../salesagent";
 import {opportunitiesFromQuestions,saveGrowthOpportunity} from "../growth";
+import {refreshIndustryBenchmarks} from "./market";
+import {aiShelfAnalytics} from "./shelf";
 
 export type FanoutSource="observed_provider"|"manual_observed"|"agentready_synthetic";
 export type FanoutType="search"|"shopping"|"other";
 export interface FanoutInput {query:string;source:FanoutSource;type:FanoutType;topic?:string;evidenceRef?:string;occurrenceCount?:number;}
 export interface SourceInput {url:string;accessed?:boolean;sourceType?:SourceType;ownership?:"owned"|"competitor"|"third_party";}
-export type SourceType="owned"|"editorial"|"corporate"|"community"|"reference"|"marketplace"|"other";
+export type SourceType="owned"|"editorial"|"corporate"|"community"|"social"|"reference"|"marketplace"|"other";
 export interface CitationInput {url:string;evidenceSpan?:string;position?:number;}
+export interface EvidenceSpanInput {subject?:string;sourceUrl?:string;spanType:"brand"|"source"|"attribute"|"citation";startOffset:number;endOffset:number;evidenceExcerpt?:string;}
+export interface BrandAttributeInput {brand:string;attribute:string;polarity?:"positive"|"neutral"|"negative";evidenceSpan:string;}
 export interface ChatFeatures {webSearch?:boolean;shopping?:boolean;productComparison?:boolean;mapsLocal?:boolean;ads?:boolean;citations?:boolean;}
 export interface PromptRunInput {
-  queryId?:string;prompt:string;provider:string;model?:string;country?:string;locale?:string;surface?:string;accountState?:string;
+  queryId?:string;prompt:string;provider:string;model?:string;country?:string;locale?:string;surface?:string;accountState?:string;category?:string;
   method:"provider_api"|"provider_export"|"manual"|"authorised_automation";
   responseText?:string;subject:string;mentioned:boolean;cited:boolean;recommended:boolean;selected?:boolean;taskCompleted?:boolean;attributed?:boolean;
   position?:number|null;sentiment?:"positive"|"neutral"|"negative";sentimentScore?:number;sentimentEvidence?:string;
   entities?:string[];sources?:SourceInput[];citations?:CitationInput[];fanouts?:FanoutInput[];chatFeatures?:ChatFeatures;
+  ownedDomain?:string;competitorDomains?:string[];
+  evidenceSpans?:EvidenceSpanInput[];brandAttributes?:BrandAttributeInput[];
 }
 
 const makeId=(prefix:string,now=Date.now(),n=0)=>`${prefix}_${now.toString(36)}_${n.toString(36)}_${Math.random().toString(36).slice(2,7)}`;
@@ -35,16 +41,16 @@ export async function recordPromptRun(env:Env,shop:string,input:PromptRunInput,n
   const runId=makeId("vpr",nowMs),responseHash=input.responseText?await sha256(input.responseText):null;
   await env.DB.prepare(`INSERT INTO visibility_prompt_runs(id,shop_domain,query_id,prompt,provider,model,country,locale,surface,
     account_state,method,response_hash,response_excerpt,subject,mentioned,cited,recommended,selected,task_completed,attributed,
-    position,sentiment,sentiment_score,sentiment_evidence,entities_json,observed_ms)
-    VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`).bind(runId,shop,input.queryId||null,clean(input.prompt,2000),clean(input.provider,80),
+    position,sentiment,sentiment_score,sentiment_evidence,entities_json,category,observed_ms)
+    VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`).bind(runId,shop,input.queryId||null,clean(input.prompt,2000),clean(input.provider,80),
       input.model?clean(input.model,120):null,input.country?clean(input.country,8):null,input.locale?clean(input.locale,30):null,input.surface?clean(input.surface,80):null,
       input.accountState?clean(input.accountState,80):null,input.method,responseHash,input.responseText?clean(input.responseText,500):null,clean(input.subject,160),
       input.mentioned?1:0,input.cited?1:0,input.recommended?1:0,input.selected?1:0,input.taskCompleted?1:0,input.attributed?1:0,
       input.position??null,input.sentiment||null,input.sentimentScore==null?null:clamp(input.sentimentScore),input.sentimentEvidence?clean(input.sentimentEvidence,500):null,
-      JSON.stringify((input.entities||[]).map(v=>clean(v,160)).slice(0,100)),nowMs).run();
+      JSON.stringify((input.entities||[]).map(v=>clean(v,160)).slice(0,100)),input.category?clean(input.category,160):null,nowMs).run();
 
   const statements=[] as D1PreparedStatement[];let n=0;
-  for(const source of input.sources||[]){const classified=classifySource(source.url);if(!classified.domain)continue;
+  for(const source of input.sources||[]){const classified=classifySource(source.url,input.ownedDomain,input.competitorDomains||[]);if(!classified.domain)continue;
     statements.push(env.DB.prepare(`INSERT OR IGNORE INTO visibility_sources(id,run_id,url,domain,source_type,ownership,accessed,observed_ms)
       VALUES(?,?,?,?,?,?,?,?)`).bind(makeId("vsrc",nowMs,n++),runId,clean(source.url,1500),classified.domain,source.sourceType||classified.sourceType,source.ownership||classified.ownership,source.accessed?1:0,nowMs));}
   n=0;for(const citation of input.citations||[]){const domain=domainOf(citation.url);if(!domain)continue;
@@ -59,11 +65,24 @@ export async function recordPromptRun(env:Env,shop:string,input:PromptRunInput,n
     VALUES(?,?,?,?,?,?,?,?)`).bind(runId,input.chatFeatures.webSearch==null?null:input.chatFeatures.webSearch?1:0,input.chatFeatures.shopping==null?null:input.chatFeatures.shopping?1:0,
       input.chatFeatures.productComparison==null?null:input.chatFeatures.productComparison?1:0,input.chatFeatures.mapsLocal==null?null:input.chatFeatures.mapsLocal?1:0,
       input.chatFeatures.ads==null?null:input.chatFeatures.ads?1:0,input.chatFeatures.citations==null?null:input.chatFeatures.citations?1:0,JSON.stringify({method:input.method})));
+  const answerLength=input.responseText?.length||0;
+  n=0;for(const span of input.evidenceSpans||[]){const start=Math.floor(Number(span.startOffset)),end=Math.floor(Number(span.endOffset));
+    if(!answerLength||start<0||end<=start||end>answerLength)continue;
+    statements.push(env.DB.prepare(`INSERT INTO visibility_evidence_spans(id,run_id,subject,source_url,span_type,start_offset,end_offset,answer_length,evidence_excerpt,observed_ms)
+      VALUES(?,?,?,?,?,?,?,?,?,?)`).bind(makeId("vspan",nowMs,n++),runId,clean(span.subject||input.subject,160),span.sourceUrl?clean(span.sourceUrl,1500):null,
+        span.spanType,start,end,answerLength,span.evidenceExcerpt?clean(span.evidenceExcerpt,500):input.responseText?.slice(start,end)||null,nowMs));}
+  n=0;for(const attribute of input.brandAttributes||[]){if(!attribute.brand?.trim()||!attribute.attribute?.trim()||!attribute.evidenceSpan?.trim())continue;
+    statements.push(env.DB.prepare(`INSERT INTO brand_attribute_observations(id,shop_domain,run_id,brand,attribute,polarity,evidence_span,observed_ms)
+      VALUES(?,?,?,?,?,?,?,?)`).bind(makeId("battr",nowMs,n++),shop,runId,clean(attribute.brand,160),clean(attribute.attribute,160),attribute.polarity||"neutral",clean(attribute.evidenceSpan,500),nowMs));}
   for(let i=0;i<statements.length;i+=50)await env.DB.batch(statements.slice(i,i+50));
+  if(input.category)await refreshIndustryBenchmarks(env,shop,nowMs);
   return runId;
 }
 
-export interface VisibilityRow {subject:string;mentioned:number;cited:number;recommended:number;selected:number;task_completed:number;attributed:number;position:number|null;sentiment:string|null;sentiment_score:number|null;provider?:string;model?:string;country?:string;observed_ms?:number;}
+export * from "./market";
+export * from "./shelf";
+
+export interface VisibilityRow {subject:string;mentioned:number;cited:number;recommended:number;selected:number;task_completed:number;attributed:number;position:number|null;sentiment:string|null;sentiment_score:number|null;provider?:string;model?:string;country?:string;surface?:string;category?:string;observed_ms?:number;}
 export function aggregateVisibility(rows:VisibilityRow[]){
   const groups=new Map<string,VisibilityRow[]>();for(const row of rows){const list=groups.get(row.subject)||[];list.push(row);groups.set(row.subject,list);}
   const metrics=[...groups].map(([subject,list])=>{const count=list.length,sum=(key:keyof VisibilityRow)=>list.reduce((n,r)=>n+Number(r[key]||0),0),positions=list.map(r=>r.position).filter((v):v is number=>v!=null);
@@ -151,7 +170,7 @@ export async function createAnalyticsAction(env:Env,shop:string,input:{sourceTyp
 }
 
 export async function analyticsReport(env:Env,shop:string){
-  const runs=await env.DB.prepare(`SELECT subject,mentioned,cited,recommended,selected,task_completed,attributed,position,sentiment,sentiment_score,provider,model,country,observed_ms
+  const runs=await env.DB.prepare(`SELECT subject,mentioned,cited,recommended,selected,task_completed,attributed,position,sentiment,sentiment_score,provider,model,country,surface,category,observed_ms
     FROM visibility_prompt_runs WHERE shop_domain=? ORDER BY observed_ms DESC LIMIT 1000`).bind(shop).all<VisibilityRow>();
   const fanouts=await env.DB.prepare(`SELECT f.* FROM visibility_fanouts f JOIN visibility_prompt_runs r ON r.id=f.run_id
     WHERE r.shop_domain=? ORDER BY f.observed_ms DESC LIMIT 1000`).bind(shop).all<Record<string,unknown>>();
@@ -159,6 +178,11 @@ export async function analyticsReport(env:Env,shop:string){
     SUM(CASE WHEN c.id IS NOT NULL THEN 1 ELSE 0 END) AS citations FROM visibility_sources s
     JOIN visibility_prompt_runs r ON r.id=s.run_id LEFT JOIN visibility_citations c ON c.run_id=s.run_id AND c.url=s.url
     WHERE r.shop_domain=? GROUP BY s.domain,s.ownership ORDER BY citations DESC,occurrences DESC LIMIT 200`).bind(shop).all<Record<string,unknown>>();
+  const shelfSources=await env.DB.prepare(`SELECT r.provider,r.surface,s.url,s.source_type,s.ownership,COUNT(*) AS occurrences,
+    SUM(CASE WHEN c.id IS NOT NULL THEN 1 ELSE 0 END) AS citations FROM visibility_sources s
+    JOIN visibility_prompt_runs r ON r.id=s.run_id LEFT JOIN visibility_citations c ON c.run_id=s.run_id AND c.url=s.url
+    WHERE r.shop_domain=? GROUP BY r.provider,r.surface,s.url,s.source_type,s.ownership
+    ORDER BY citations DESC,occurrences DESC LIMIT 1000`).bind(shop).all<Record<string,unknown>>();
   const crawlers=await env.DB.prepare(`SELECT provider,bot,COUNT(*) AS visits,SUM(CASE WHEN status>=400 OR error_code IS NOT NULL THEN 1 ELSE 0 END) AS failures,
     MAX(observed_ms) AS last_seen_ms FROM crawler_observations WHERE shop_domain=? GROUP BY provider,bot ORDER BY visits DESC`).bind(shop).all();
   const shopping=await env.DB.prepare(`SELECT item_id,COUNT(*) AS prompts,SUM(visible) AS visible,SUM(won) AS wins,AVG(position) AS average_position,
@@ -174,6 +198,7 @@ export async function analyticsReport(env:Env,shop:string){
   return {visibility:aggregateVisibility(runs.results),fanouts:{total:fanoutRows.length,observed:fanoutRows.filter(f=>f.source!=="agentready_synthetic").length,
       synthetic:fanoutRows.filter(f=>f.source==="agentready_synthetic").length,repeatedTerms:repeatedTerms(fanoutRows.map(f=>String(f.query))),rows:fanoutRows},
     sources:sources.results,sourceGaps:sourceGap((sources.results as any[]).map(s=>({domain:String(s.domain),ownership:String(s.ownership),citations:Number(s.citations||0)}))),
+    aiShelf:aiShelfAnalytics({sources:shelfSources.results as any[],recommendations:runs.results.map(r=>({provider:r.provider,surface:r.surface,category:r.category,subject:r.subject,recommended:r.recommended}))}),
     chatFeatures:chatFeatures||{runs:0},perception:perception.results,crawlers:crawlers.results,shopping:shopping.results,actions:actions.results,
     caveat:"Observed provider evidence, authorised imports, manual evidence and synthetic planning data remain separate. Small samples are not presented as stable rankings."};
 }
