@@ -45,9 +45,15 @@ describe("Phases 18-21 Business Brain and Sales Agent",()=>{
 });
 
 describe("Scanner Superset and Path to 100",()=>{
-  it("has no roadmap capability left marked planned",()=>{
-    expect(BENCHMARK_CAPABILITIES.filter(c=>c.state==="planned")).toEqual([]);
-    expect(benchmarkSummary().milestoneReady).toBe(true);expect(benchmarkSummary().peecCapabilities).toBeGreaterThanOrEqual(28);
+  it("preserves the completed Phase 29 benchmark while exposing new market blockers",()=>{
+    const phase29=benchmarkSummary(29),current=benchmarkSummary();
+    expect(phase29.capabilities.filter(c=>c.state==="planned")).toEqual([]);
+    expect(phase29.milestoneReady).toBe(true);expect(phase29.peecCapabilities).toBeGreaterThanOrEqual(28);
+    expect(current.milestoneReady).toBe(false);
+    expect(current.capabilities.filter(c=>c.state==="planned").map(c=>c.key)).toEqual(expect.arrayContaining([
+      "prominence","industry_fit","brand_attribute_association","attribute_market_prominence","ga4_referral_dimensions"
+    ]));
+    expect(BENCHMARK_CAPABILITIES.some(c=>c.benchmark==="Cloudflare")).toBe(true);
   });
   it("turns every applicable non-pass into a remediation route",()=>{
     const report={score:72,checks:[{key:"catalog-price",category:"catalog",status:"fail",points:0,maxPoints:8,plainTitle:"Prices",whyItMatters:"Customers need prices",evidence:"none",technicalDetail:"",recommendedFix:"Publish prices",fixType:"automatic",estimatedGain:8},
