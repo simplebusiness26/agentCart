@@ -3,7 +3,7 @@ import type {AgentReadyReport,Check} from "../agentready/types";
 export type BenchmarkState="stronger"|"covered"|"planned"|"unsupported_by_provider"|"intentionally_not_applicable"|"unverifiable";
 export interface BenchmarkCapability {benchmark:string;key:string;label:string;state:BenchmarkState;equivalent:string;rationale:string;phase:number;evidenceUrl:string;verifiedOn:string;}
 
-const verifiedOn="2026-09-18";
+const verifiedOn="2026-09-21";
 const entry=(benchmark:string,key:string,label:string,state:BenchmarkState,equivalent:string,rationale:string,phase:number,evidenceUrl:string):BenchmarkCapability=>
   ({benchmark,key,label,state,equivalent,rationale,phase,evidenceUrl,verifiedOn});
 
@@ -38,7 +38,7 @@ export const BENCHMARK_CAPABILITIES:BenchmarkCapability[]=[
   ,entry("Peec","source_domains","Source-domain analytics","covered","visibility_sources","Accessed sources and cited sources remain distinct.",26,"https://peec.ai/")
   ,entry("Peec","source_gap","Source-gap analysis","stronger","source gap to executable action","Gaps route to owned content, legitimate outreach, directory correction or feed work.",26,"https://peec.ai/")
   ,entry("Peec","chat_features","Chat feature detection","covered","visibility_chat_features","Web search, shopping, comparisons, maps, ads and citations are nullable observations.",25,"https://peec.ai/")
-  ,entry("Peec","brand_perception","Brand perception","stronger","perception + Business Brain conflict detection","Observed language, evaluated theme and verified fact are separate.",27,"https://peec.ai/")
+  ,entry("Peec","brand_perception","Brand perception","covered","perception + Business Brain conflict detection","Observed language, evaluated theme and verified fact are separate, but newer attribute-association and market-prominence views are tracked separately.",27,"https://peec.ai/")
   ,entry("Peec","cross_model","Cross-model comparison","covered","prompt-run model dimension","Atomic runs store model and provider for comparable filters.",25,"https://peec.ai/")
   ,entry("Peec","geography","Geography comparison","covered","prompt-run country/locale dimensions","Unknown geography remains null rather than inferred.",25,"https://peec.ai/")
   ,entry("Peec","topic","Topic comparison","covered","query/fanout topic dimensions","Topics connect prompt, fanout and growth opportunity evidence.",26,"https://peec.ai/")
@@ -53,6 +53,15 @@ export const BENCHMARK_CAPABILITIES:BenchmarkCapability[]=[
   ,entry("Peec","conversion_revenue","Conversion and revenue analytics","stronger","signed journeys + evidence tiers","Verified, reported, assisted and unknown outcomes stay separate.",29,"https://peec.ai/")
   ,entry("Peec","api_mcp","API and MCP access","stronger","authenticated analytics API + read-only MCP","Private merchant analytics are not leaked through the public MCP.",29,"https://peec.ai/")
   ,entry("Peec","export","Export-ready analytics","covered","stable evidence CSV","Atomic prompt evidence exports with fixed columns.",29,"https://peec.ai/")
+  ,entry("Cloudflare","agent_readiness","Agent readiness diagnostics","covered","scanner superset + provider/readiness evidence","AgentReady already separates business readiness, technical standards and provider evidence.",22,"https://blog.cloudflare.com/aeo/")
+  ,entry("Cloudflare","citation_rate","AEO citation rate","covered","citation analytics","Atomic prompt runs retain cited state and citation URLs.",25,"https://blog.cloudflare.com/aeo/")
+  ,entry("Cloudflare","mention_rate","AEO mention rate","covered","visibility analytics","Mention frequency is retained per prompt run.",25,"https://blog.cloudflare.com/aeo/")
+  ,entry("Cloudflare","share_of_voice","AEO share of voice","covered","all-entity share of voice","Share of voice is computed from atomic observations with sample-size visibility.",25,"https://blog.cloudflare.com/aeo/")
+  ,entry("Cloudflare","prominence","AEO prominence","planned","answer-span prominence analytics","Current citation/position metrics do not yet measure how early and how much answer substance is attributable to a source.",31,"https://blog.cloudflare.com/aeo/")
+  ,entry("Cloudflare","industry_fit","AEO industry fit","planned","category benchmark corpus","Current competitor analytics do not yet provide a reusable category-level co-occurrence baseline.",31,"https://blog.cloudflare.com/aeo/")
+  ,entry("Peec","brand_attribute_association","Brand attribute association","planned","attribute evidence corpus","Current perception themes do not yet calculate a corpus-backed brand-to-attribute association metric.",31,"https://peec.ai/blog/introducing-brand-perception")
+  ,entry("Peec","attribute_market_prominence","Attribute market prominence","planned","competitor attribute benchmark","Current perception analytics do not yet calculate how strongly an attribute is associated across the competitive set.",31,"https://peec.ai/blog/introducing-brand-perception")
+  ,entry("Peec","ga4_referral_dimensions","Authorised GA referral dimensions","planned","GA4 evidence adapter","Signed journeys are stronger first-party evidence, but there is no authorised GA4 import for historical assistant sessions, engagement and dimensions.",31,"https://peec.ai/blog/introducing-ai-referrals")
 ];
 
 export interface RemediationPath {
@@ -85,9 +94,12 @@ export function buildPathTo100(report:AgentReadyReport){
     rule:"100 means every applicable, merchant-controllable scored requirement passes. Optional or provider-blocked capabilities remain neutral."};
 }
 
-export function benchmarkSummary(){
-  const releaseBlockers=BENCHMARK_CAPABILITIES.filter(c=>c.state==="planned");
-  const peecFloor=new Set(BENCHMARK_CAPABILITIES.filter(c=>c.benchmark==="Peec").map(c=>c.key));
-  return {verifiedOn,total:BENCHMARK_CAPABILITIES.length,peecCapabilities:peecFloor.size,releaseBlockers:releaseBlockers.length,capabilities:BENCHMARK_CAPABILITIES,
-    milestoneReady:releaseBlockers.length===0,note:"Covered means an end-to-end AgentReady capability exists; it does not claim that every external provider exposes data for every merchant."};
+export function benchmarkSummary(maxPhase=Number.POSITIVE_INFINITY){
+  const capabilities=BENCHMARK_CAPABILITIES.filter(c=>c.phase<=maxPhase);
+  const releaseBlockers=capabilities.filter(c=>c.state==="planned");
+  const peecFloor=new Set(capabilities.filter(c=>c.benchmark==="Peec").map(c=>c.key));
+  return {verifiedOn,total:capabilities.length,peecCapabilities:peecFloor.size,releaseBlockers:releaseBlockers.length,capabilities,
+    milestoneReady:releaseBlockers.length===0,
+    scope:maxPhase===Number.POSITIVE_INFINITY?"current_market":"through_phase_"+maxPhase,
+    note:"Covered means an end-to-end AgentReady capability exists; it does not claim that every external provider exposes data for every merchant. Phase-scoped summaries preserve historical milestone truth when the market adds new capabilities."};
 }
