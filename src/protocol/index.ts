@@ -28,9 +28,10 @@ export const PROTOCOLS:ProtocolDescriptor[]=[
    supported:["tools/list","tools/call for read-only business, catalogue, policy and action queries"],
    notSupported:[{capability:"Mutating tools",reason:"Every exposed tool is read-only by design."}],
    spec:"https://modelcontextprotocol.io"},
-  {id:"ucp",label:"Universal Commerce Protocol",
-   supported:["Discovery manifest, served by AgentCart for the business at /api/ai/<slug>/ucp","Shopping service descriptor","Capability advertisement"],
+  {id:"ucp",label:"UCP compatibility (legacy draft shape)",
+   supported:["AgentCart-hosted compatibility manifest at /api/ai/<slug>/ucp","Read-only catalogue compatibility descriptor"],
    notSupported:[
+     {capability:"UCP 2026-08-25 conformance",reason:"The hosted AgentCart manifest predates the current UCP release and must not be presented as current conformance until Phase 30 upgrades and verifies it."},
      {capability:"dev.ucp.shopping.checkout",reason:"AgentCart does not process payments. Checkout stays with the merchant's platform."},
      {capability:"Signed message verification",reason:"No signing keys are published, because AgentCart does not sign commerce messages on a merchant's behalf."}],
    spec:"https://ucp.dev"},
@@ -42,8 +43,9 @@ export const PROTOCOLS:ProtocolDescriptor[]=[
    spec:"https://github.com/agentic-commerce-protocol/agentic-commerce-protocol"}
 ];
 
-/** The UCP discovery manifest AgentCart publishes for a connected business.
- *  Shape follows ucp.dev core concepts, verified 2026-09-10. */
+/** Legacy AgentCart UCP-shaped compatibility manifest for a connected business.
+ *  This route predates UCP 2026-08-25 and does not claim current conformance.
+ *  Phase 30 owns the upgrade/verification path; Shopify native UCP is a separate surface. */
 export async function buildUcpManifest(env:Env,shop:string,slug:string,appUrl:string){
   const business=await getBusiness(env,shop,slug);
   if(!business)return null;
@@ -61,7 +63,7 @@ export async function buildUcpManifest(env:Env,shop:string,slug:string,appUrl:st
       // payment_handlers is omitted entirely: AgentCart accepts no payments.
     },
     agentcart:{
-      note:"AgentCart publishes discovery and read access for this business. Checkout and payment remain with the merchant's own platform.",
+      note:"Legacy AgentCart compatibility manifest; not a claim of UCP 2026-08-25 conformance. Checkout and payment remain with the merchant's own platform.",
       endpoints:{profile:`${base}/profile`,catalog:`${base}/catalog`,search:`${base}/search`,
         policies:`${base}/policies`,actions:`${base}/actions`,mcp:`${base}/mcp`,agentsMd:`${base}/agents.md`},
       lastUpdated:business.lastUpdated
