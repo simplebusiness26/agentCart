@@ -2,12 +2,13 @@ import type {Env} from "../types";
 import type {BusinessBrain} from "../salesagent";
 import {opportunitiesFromQuestions,saveGrowthOpportunity} from "../growth";
 import {refreshIndustryBenchmarks} from "./market";
+import {aiShelfAnalytics} from "./shelf";
 
 export type FanoutSource="observed_provider"|"manual_observed"|"agentready_synthetic";
 export type FanoutType="search"|"shopping"|"other";
 export interface FanoutInput {query:string;source:FanoutSource;type:FanoutType;topic?:string;evidenceRef?:string;occurrenceCount?:number;}
 export interface SourceInput {url:string;accessed?:boolean;sourceType?:SourceType;ownership?:"owned"|"competitor"|"third_party";}
-export type SourceType="owned"|"editorial"|"corporate"|"community"|"reference"|"marketplace"|"other";
+export type SourceType="owned"|"editorial"|"corporate"|"community"|"social"|"reference"|"marketplace"|"other";
 export interface CitationInput {url:string;evidenceSpan?:string;position?:number;}
 export interface EvidenceSpanInput {subject?:string;sourceUrl?:string;spanType:"brand"|"source"|"attribute"|"citation";startOffset:number;endOffset:number;evidenceExcerpt?:string;}
 export interface BrandAttributeInput {brand:string;attribute:string;polarity?:"positive"|"neutral"|"negative";evidenceSpan:string;}
@@ -18,6 +19,7 @@ export interface PromptRunInput {
   responseText?:string;subject:string;mentioned:boolean;cited:boolean;recommended:boolean;selected?:boolean;taskCompleted?:boolean;attributed?:boolean;
   position?:number|null;sentiment?:"positive"|"neutral"|"negative";sentimentScore?:number;sentimentEvidence?:string;
   entities?:string[];sources?:SourceInput[];citations?:CitationInput[];fanouts?:FanoutInput[];chatFeatures?:ChatFeatures;
+  ownedDomain?:string;competitorDomains?:string[];
   evidenceSpans?:EvidenceSpanInput[];brandAttributes?:BrandAttributeInput[];
 }
 
@@ -48,7 +50,7 @@ export async function recordPromptRun(env:Env,shop:string,input:PromptRunInput,n
       JSON.stringify((input.entities||[]).map(v=>clean(v,160)).slice(0,100)),input.category?clean(input.category,160):null,nowMs).run();
 
   const statements=[] as D1PreparedStatement[];let n=0;
-  for(const source of input.sources||[]){const classified=classifySource(source.url);if(!classified.domain)continue;
+  for(const source of input.sources||[]){const classified=classifySource(source.url,input.ownedDomain,input.competitorDomains||[]);if(!classified.domain)continue;
     statements.push(env.DB.prepare(`INSERT OR IGNORE INTO visibility_sources(id,run_id,url,domain,source_type,ownership,accessed,observed_ms)
       VALUES(?,?,?,?,?,?,?,?)`).bind(makeId("vsrc",nowMs,n++),runId,clean(source.url,1500),classified.domain,source.sourceType||classified.sourceType,source.ownership||classified.ownership,source.accessed?1:0,nowMs));}
   n=0;for(const citation of input.citations||[]){const domain=domainOf(citation.url);if(!domain)continue;
@@ -78,8 +80,9 @@ export async function recordPromptRun(env:Env,shop:string,input:PromptRunInput,n
 }
 
 export * from "./market";
+export * from "./shelf";
 
-export interface VisibilityRow {subject:string;mentioned:number;cited:number;recommended:number;selected:number;task_completed:number;attributed:number;position:number|null;sentiment:string|null;sentiment_score:number|null;provider?:string;model?:string;country?:string;observed_ms?:number;}
+export interface VisibilityRow {subject:string;mentioned:number;cited:number;recommended:number;selected:number;task_completed:number;attributed:number;position:number|null;sentiment:string|null;sentiment_score:number|null;provider?:string;model?:string;country?:string;surface?:string;category?:string;observed_ms?:number;}
 export function aggregateVisibility(rows:VisibilityRow[]){
   const groups=new Map<string,VisibilityRow[]>();for(const row of rows){const list=groups.get(row.subject)||[];list.push(row);groups.set(row.subject,list);}
   const metrics=[...groups].map(([subject,list])=>{const count=list.length,sum=(key:keyof VisibilityRow)=>list.reduce((n,r)=>n+Number(r[key]||0),0),positions=list.map(r=>r.position).filter((v):v is number=>v!=null);
@@ -167,7 +170,7 @@ export async function createAnalyticsAction(env:Env,shop:string,input:{sourceTyp
 }
 
 export async function analyticsReport(env:Env,shop:string){
-  const runs=await env.DB.prepare(`SELECT subject,mentioned,cited,recommended,selected,task_completed,attributed,position,sentiment,sentiment_score,provider,model,country,observed_ms
+  const runs=await env.DB.prepare(`SELECT subject,mentioned,cited,recommended,selected,task_completed,attributed,position,sentiment,sentiment_score,provider,model,country,surface,category,observed_ms
     FROM visibility_prompt_runs WHERE shop_domain=? ORDER BY observed_ms DESC LIMIT 1000`).bind(shop).all<VisibilityRow>();
   const fanouts=await env.DB.prepare(`SELECT f.* FROM visibility_fanouts f JOIN visibility_prompt_runs r ON r.id=f.run_id
     WHERE r.shop_domain=? ORDER BY f.observed_ms DESC LIMIT 1000`).bind(shop).all<Record<string,unknown>>();
@@ -175,6 +178,11 @@ export async function analyticsReport(env:Env,shop:string){
     SUM(CASE WHEN c.id IS NOT NULL THEN 1 ELSE 0 END) AS citations FROM visibility_sources s
     JOIN visibility_prompt_runs r ON r.id=s.run_id LEFT JOIN visibility_citations c ON c.run_id=s.run_id AND c.url=s.url
     WHERE r.shop_domain=? GROUP BY s.domain,s.ownership ORDER BY citations DESC,occurrences DESC LIMIT 200`).bind(shop).all<Record<string,unknown>>();
+  const shelfSources=await env.DB.prepare(`SELECT r.provider,r.surface,s.url,s.source_type,s.ownership,COUNT(*) AS occurrences,
+    SUM(CASE WHEN c.id IS NOT NULL THEN 1 ELSE 0 END) AS citations FROM visibility_sources s
+    JOIN visibility_prompt_runs r ON r.id=s.run_id LEFT JOIN visibility_citations c ON c.run_id=s.run_id AND c.url=s.url
+    WHERE r.shop_domain=? GROUP BY r.provider,r.surface,s.url,s.source_type,s.ownership
+    ORDER BY citations DESC,occurrences DESC LIMIT 1000`).bind(shop).all<Record<string,unknown>>();
   const crawlers=await env.DB.prepare(`SELECT provider,bot,COUNT(*) AS visits,SUM(CASE WHEN status>=400 OR error_code IS NOT NULL THEN 1 ELSE 0 END) AS failures,
     MAX(observed_ms) AS last_seen_ms FROM crawler_observations WHERE shop_domain=? GROUP BY provider,bot ORDER BY visits DESC`).bind(shop).all();
   const shopping=await env.DB.prepare(`SELECT item_id,COUNT(*) AS prompts,SUM(visible) AS visible,SUM(won) AS wins,AVG(position) AS average_position,
@@ -190,6 +198,7 @@ export async function analyticsReport(env:Env,shop:string){
   return {visibility:aggregateVisibility(runs.results),fanouts:{total:fanoutRows.length,observed:fanoutRows.filter(f=>f.source!=="agentready_synthetic").length,
       synthetic:fanoutRows.filter(f=>f.source==="agentready_synthetic").length,repeatedTerms:repeatedTerms(fanoutRows.map(f=>String(f.query))),rows:fanoutRows},
     sources:sources.results,sourceGaps:sourceGap((sources.results as any[]).map(s=>({domain:String(s.domain),ownership:String(s.ownership),citations:Number(s.citations||0)}))),
+    aiShelf:aiShelfAnalytics({sources:shelfSources.results as any[],recommendations:runs.results.map(r=>({provider:r.provider,surface:r.surface,category:r.category,subject:r.subject,recommended:r.recommended}))}),
     chatFeatures:chatFeatures||{runs:0},perception:perception.results,crawlers:crawlers.results,shopping:shopping.results,actions:actions.results,
     caveat:"Observed provider evidence, authorised imports, manual evidence and synthetic planning data remain separate. Small samples are not presented as stable rankings."};
 }
