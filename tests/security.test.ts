@@ -72,6 +72,7 @@ describe('authenticated routes reject anonymous callers',()=>{
     ['/api/analytics/export.csv','GET'],['/api/analytics/mcp','POST'],
     ['/api/commerce/readiness','GET'],['/api/commerce/ucp/probe','POST'],['/api/commerce/ucp/negotiate','POST'],
     ['/api/commerce/openai-feed.jsonl','GET'],['/api/commerce/lighthouse/import','POST'],
+    ['/api/commerce/ads-measurement/assess','POST'],
     ['/api/analytics/market','GET'],['/api/analytics/referrals/import','POST'],['/api/analytics/ga4','GET'],
     ['/api/analytics/ga4/connect','GET'],['/api/analytics/ga4/property','POST'],['/api/analytics/ga4/import','POST'],
     ['/api/security','GET'],['/api/security/assess','POST']

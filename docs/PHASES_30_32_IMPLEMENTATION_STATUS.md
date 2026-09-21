@@ -30,6 +30,7 @@ It is non-destructive and preserves all Phase 1–29 data.
 - `POST /api/commerce/ucp/probe`
 - `POST /api/commerce/ucp/negotiate` — explicit development-store opt-in only
 - `GET /api/commerce/openai-feed.jsonl` — preview/download, never provider upload
+- `POST /api/commerce/ads-measurement/assess` — consent and browser/server deduplication readiness only
 - `POST /api/commerce/lighthouse/import`
 - `GET /api/analytics/market`
 - `POST /api/analytics/referrals/import`

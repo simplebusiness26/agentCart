@@ -37,7 +37,7 @@ import { ANALYTICS_EXPORT_COLUMNS, analyticsCsv, analyticsReport, createAnalytic
 import { handleAnalyticsMcp } from "./analytics/mcp";
 import {importAuthorisedReferrals,marketAnalyticsReport} from "./analytics/market";
 import {completeGa4OAuth,configureGa4Property,ga4AuthorizationUrl,ga4ConnectionStatus,importGa4Report} from "./analytics/ga4";
-import {commerceReadiness,feedJsonl,openAiCommerceFeed,probeNativeUcp,saveFeedExport,saveLighthouseAgenticReport} from "./commerce";
+import {commerceReadiness,feedJsonl,openAiAdsMeasurementReadiness,openAiCommerceFeed,probeNativeUcp,saveFeedExport,saveLighthouseAgenticReport} from "./commerce";
 import {assessAgentInteractionSecurity,saveAgentSecurityAssessment,securityReport} from "./security/agent";
 
 const html=(body:string,status=200,headers:HeadersInit={})=>new Response(body,{status,headers:{"content-type":"text/html; charset=utf-8","x-content-type-options":"nosniff","referrer-policy":"strict-origin-when-cross-origin","permissions-policy":"camera=(), microphone=(), geolocation=()","content-security-policy":"default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; connect-src 'self'; form-action 'self'; frame-ancestors 'none'; base-uri 'none'",...headers}});
@@ -427,6 +427,11 @@ async function route(request:Request,env:Env):Promise<Response>{
     try{const feed=openAiCommerceFeed(await buildBusinessBrain(env,shop));await saveFeedExport(env,shop,feed);
       return new Response(feedJsonl(feed),{headers:{"content-type":"application/x-ndjson; charset=utf-8","content-disposition":"attachment; filename=openai-commerce-feed-preview.jsonl","cache-control":"no-store","x-agentready-uploaded":"false"}});}
     catch(e){return json({error:e instanceof Error?e.message:"Could not build the feed preview."},409);}
+  }
+  if(request.method==="POST"&&path==="/api/commerce/ads-measurement/assess"){
+    const shop=await sessionShop(request,env);if(!shop)return json({error:"No connected Shopify session."},401);const body=await request.json<any>().catch(()=>({}));
+    return json(openAiAdsMeasurementReadiness({merchantWantsAds:body.merchantWantsAds===true,consentEvidence:body.consentEvidence===true,
+      browserEvents:body.browserEvents===true,serverEvents:body.serverEvents===true,deduplicationKey:body.deduplicationKey?String(body.deduplicationKey):undefined}));
   }
   if(request.method==="POST"&&path==="/api/commerce/lighthouse/import"){
     const shop=await sessionShop(request,env);if(!shop)return json({error:"No connected Shopify session."},401);

@@ -1,5 +1,5 @@
 import {describe,expect,it} from "vitest";
-import {feedJsonl,openAiCommerceFeed,parseLighthouseAgenticReport,parseUcpProfile,probeNativeUcp} from "../src/commerce";
+import {feedJsonl,openAiAdsMeasurementReadiness,openAiCommerceFeed,parseLighthouseAgenticReport,parseUcpProfile,probeNativeUcp} from "../src/commerce";
 import {brandPerceptionMetrics,importAuthorisedReferrals,industryFitMetrics,normalizeReferralRows,prominenceMetrics} from "../src/analytics/market";
 import {recordPromptRun} from "../src/analytics";
 import {assessAgentInteractionSecurity} from "../src/security/agent";
@@ -27,6 +27,11 @@ describe("Phase 30 commerce and standards refresh",()=>{
   it("imports Lighthouse evidence without translating its fraction into an AgentReady score",()=>{
     const parsed=parseLighthouseAgenticReport({lighthouseVersion:"13",categories:{"agentic-browsing":{score:.5,auditRefs:[{id:"webmcp-schema-validity"},{id:"layout-shift-elements"}]}},audits:{"webmcp-schema-validity":{title:"WebMCP schema",score:1},"layout-shift-elements":{title:"CLS",score:0}}});
     expect(parsed.fraction).toBe(.5);expect(parsed.passed).toBe(1);expect(parsed.failed).toBe(1);expect(parsed.note).toContain("not copied");
+  });
+  it("keeps optional Ads measurement separate and requires browser/server deduplication",()=>{
+    expect(openAiAdsMeasurementReadiness({}).state).toBe("not_applicable");
+    const missing=openAiAdsMeasurementReadiness({merchantWantsAds:true,consentEvidence:true,browserEvents:true,serverEvents:true});expect(missing.state).toBe("fail");expect(missing.organicScoreImpact).toBe(0);
+    expect(openAiAdsMeasurementReadiness({merchantWantsAds:true,consentEvidence:true,browserEvents:true,serverEvents:true,deduplicationKey:"event_id"}).state).toBe("ready");
   });
   it("probes UCP and advertising reachability without following redirects",async()=>{
     const {env}=fakeEnv();const calls:Array<{url:string;redirect?:RequestRedirect}>=[];

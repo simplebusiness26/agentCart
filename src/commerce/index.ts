@@ -101,6 +101,20 @@ export function feedJsonl(feed:ReturnType<typeof openAiCommerceFeed>){
   return feed.items.map(({missing,stale,eligible,last_verified_ms,variant_identity_valid,...row})=>JSON.stringify(row)).join("\n")+(feed.items.length?"\n":"");
 }
 
+export function openAiAdsMeasurementReadiness(input:{merchantWantsAds?:boolean;consentEvidence?:boolean;browserEvents?:boolean;serverEvents?:boolean;deduplicationKey?:string}){
+  const applicable=input.merchantWantsAds===true,both=!!input.browserEvents&&!!input.serverEvents,dedupe=String(input.deduplicationKey||"").trim();
+  const checks=[
+    {key:"merchant_intent",state:applicable?"pass":"not_applicable",detail:applicable?"The merchant explicitly opted in to assess ChatGPT Ads measurement.":"Ads measurement is optional and has not been requested."},
+    {key:"consent",state:!applicable?"not_applicable":input.consentEvidence?"pass":"unknown",detail:"Browser and server measurement must follow the merchant's consent policy and applicable law."},
+    {key:"browser_events",state:!applicable?"not_applicable":input.browserEvents?"pass":"unknown",detail:"Measurement Pixel readiness is separate from organic discovery and ad eligibility."},
+    {key:"server_events",state:!applicable?"not_applicable":input.serverEvents?"pass":"unknown",detail:"Conversions API readiness requires authorised provider credentials and a documented event contract."},
+    {key:"deduplication",state:!applicable?"not_applicable":!both?"not_applicable":dedupe?"pass":"fail",detail:both?"Browser/server copies of the same event need one stable deduplication key.":"Deduplication is only applicable when both browser and server events are sent."}
+  ];
+  const state=!applicable?"not_applicable":checks.some(c=>c.state==="fail")?"fail":checks.some(c=>c.state==="unknown")?"unknown":"ready";
+  return {state,checks,providerActivation:"not_verified",organicScoreImpact:0,
+    note:"This assesses measurement plumbing only. It does not create an OpenAI advertiser account, upload events or prove ad eligibility."};
+}
+
 export async function saveFeedExport(env:Env,shop:string,feed:ReturnType<typeof openAiCommerceFeed>,nowMs=Date.now()){
   const exportId=id("feed",nowMs);await env.DB.prepare(`INSERT INTO commerce_feed_exports(id,shop_domain,format,brain_version,item_count,
     eligible_count,stale_count,summary_json,created_ms) VALUES(?,?,?,?,?,?,?,?,?)`).bind(exportId,shop,feed.format,feed.brainVersion,
@@ -133,7 +147,7 @@ export async function commerceReadiness(env:Env,shop:string,brain:BusinessBrain)
   const ucp=await env.DB.prepare("SELECT * FROM ucp_observations WHERE shop_domain=? ORDER BY checked_ms DESC LIMIT 1").bind(shop).first();
   const lighthouse=await env.DB.prepare("SELECT * FROM agentic_browser_audits WHERE shop_domain=? ORDER BY checked_ms DESC LIMIT 1").bind(shop).first();
   return {ucp:ucp||null,openAiFeed:{...feed,items:feed.items.slice(0,25)},lighthouse:lighthouse||null,
-    ads:{state:"separate_check",note:"OAI-AdsBot access is advertising readiness and never reduces the organic AgentReady score."}};
+    ads:{state:"separate_check",measurement:openAiAdsMeasurementReadiness({merchantWantsAds:false}),note:"OAI-AdsBot access and measurement are advertising readiness only and never reduce the organic AgentReady score."}};
 }
 
 export {CURRENT_UCP_VERSION,CORE_OPENAI_FIELDS};
