@@ -64,3 +64,18 @@ This branch does not claim:
 6. Import a real Lighthouse Agentic Browsing report where supported.
 7. Run AgentPulse and tool-security checks against real authorised endpoints.
 8. Keep each provider surface at Code-ready or Observed until production evidence proves Live.
+
+
+## Post-Phase-32 market refresh
+
+A 2026-09-21 follow-up market review found additional work after this phase set:
+
+- Phase 33: AI Shelf analytics, prompted by current agentic-commerce optimisation evidence and competitor movement.
+- Phase 34: authorised Google Merchant Center AI performance/conversational product evidence and Shopify agentic-channel state.
+- Phase 35: WebMCP Fix My Site installer/action layer and real browser-runtime verification.
+
+See:
+- `docs/MARKET_REFRESH_2026_09_21_PHASES_33_35.md`
+- `docs/PHASE_35_WEBMCP_FIX_MY_SITE_BUILD_PLAN.md`
+
+These newer gaps do not invalidate the credential-independent completion of Phases 30–32. The unscoped current-market benchmark intentionally exposes them as planned work.
