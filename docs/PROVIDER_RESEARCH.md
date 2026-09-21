@@ -4,7 +4,7 @@ Phase 10 requires re-checking official Meta, Shopify and Stripe documentation be
 provider-specific assumptions, and forbids claiming readiness without evidence. This file records
 what was verified, when, and from where, so a future change can tell fact from assumption.
 
-**Verified: 2026-09-10.** These capabilities are new and move quickly. Re-check before relying on
+**Verified: 2026-09-21.** These capabilities are new and move quickly. Re-check before relying on
 any row below; the provider registry in `src/providers/registry.ts` is the single place to update.
 
 ## Meta crawlers and fetchers
@@ -40,17 +40,38 @@ Sources: Meta's launch coverage, September 2026 (TechCrunch, PPC Land, TechBrief
 Consequence: region matters. A UK or EU merchant is **not** failing because Muse is unavailable in
 their market. AgentCart reports that as `not_available_in_region`, never as a merchant failure.
 
+## OpenAI crawler and commerce changes
+
+Sources: <https://developers.openai.com/api/docs/bots>,
+<https://openai.com/policies/merchant-feed-terms-of-service/> and the current OpenAI Commerce feed documentation.
+
+- `OAI-SearchBot` controls automatic discovery for ChatGPT search and honours robots.txt.
+- `OAI-AdsBot` validates pages submitted as ChatGPT ads and can be used for ad relevance. It is an
+  advertising crawler, not a training crawler, and is therefore **not** part of the Agent Ready score.
+- `ChatGPT-User` is a user-triggered fetcher. OpenAI explicitly says robots.txt rules **may not
+  apply** to those requests. A robots `Disallow` therefore records merchant intent but is not proof
+  that a user-triggered ChatGPT fetch is blocked.
+- Merchant feeds are a separate pushed-data surface. Merchants (and agents acting for them) are
+  responsible for keeping submitted product content correct and current and for complying with
+  OpenAI commerce policies and the current Product Feed Spec.
+- Ads readiness and organic/search readiness are separate. AgentCart must not turn an ad crawler
+  failure into an organic discovery failure, or vice versa.
+
+Consequence: provider readiness now needs distinct search, user-fetch, training and advertising
+states. The crawler registry carries those purposes separately so future ChatGPT Ads tooling can
+reuse the same evidence without contaminating the core readiness score.
+
 ## Universal Commerce Protocol (UCP)
 
 Sources: <https://ucp.dev/documentation/core-concepts/>, <https://shopify.engineering/ucp>,
 <https://github.com/universal-commerce-protocol/ucp>.
 
-Discovery is a JSON manifest at `/.well-known/ucp`:
+The current verified UCP release is `2026-08-25`. Discovery is a JSON manifest at `/.well-known/ucp`:
 
 ```json
 {
   "ucp": {
-    "version": "draft",
+    "version": "2026-08-25",
     "services":         { "dev.ucp.shopping": { "version": "...", "transport": "rest|mcp|a2a|embedded", "endpoint": "...", "schema": "...", "spec": "..." } },
     "capabilities":     { "dev.ucp.shopping.checkout": [ { "version": "...", "schema": "...", "spec": "...", "extends": "..." } ] },
     "payment_handlers": { "<reverse.domain.key>": { "id": "...", "version": "...", "schema": "...", "spec": "..." } }
@@ -64,10 +85,17 @@ Discovery is a JSON manifest at `/.well-known/ucp`:
   signed interactions.
 - Services and capabilities use reverse-domain keys, so parsing must not assume a fixed list.
 
-**Not verified:** whether Shopify publishes `/.well-known/ucp` automatically for merchant
-storefronts. Shopify's engineering post describes UCP and a Checkout Kit but does not state this.
-AgentCart therefore reports Shopify-native UCP publication as `unknown` and does not tell a merchant
-to create a file Shopify may already provide — nor claims Shopify provides one.
+**Verified 2026-09-21:** Shopify storefronts publish UCP discovery at `/.well-known/ucp` and now
+advertise protocol version `2026-08-25`. Shopify documents the shared UCP MCP endpoint as
+`https://{shop-domain}/api/ucp/mcp`, with catalogue, cart, checkout and order capabilities negotiated
+from the storefront discovery profile.
+
+This changes AgentCart's implementation rule: Shopify-native UCP is no longer an `unknown`
+assumption. The scanner should inspect the live merchant profile, record its advertised version and
+capabilities, and use safe read-only/runtime checks where appropriate. AgentCart must still report
+the **observed** merchant profile rather than assuming every capability is enabled merely because
+Shopify supports it. AgentCart's own hosted compatibility layer remains separate from Shopify's
+native UCP surface.
 
 ## Agentic Commerce Protocol (ACP)
 

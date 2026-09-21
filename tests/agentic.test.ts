@@ -9,6 +9,8 @@ import worker from '../src/index';
 import {sessionCookie} from '../src/shopify';
 import * as S from './fixtures/shopify';
 import type {Env} from '../src/types';
+import {PROVIDERS,isScoredPurpose} from '../src/providers/registry';
+import {providerAccess} from '../src/providers/robots';
 
 const SHOP='demo.myshopify.com';
 let env:Env; let sqlite:any;
@@ -154,6 +156,19 @@ describe('Shopify agentic channel readiness',()=>{
     expect(stored.length).toBe(caps.length);
     await saveChannelCapabilities(env,SHOP,caps);
     expect((await getChannelCapabilities(env,SHOP)).length).toBe(caps.length);
+  });
+});
+
+describe('current OpenAI crawler policy',()=>{
+  it('keeps advertising separate and treats user fetch robots rules as non-authoritative',()=>{
+    const openai=PROVIDERS.find(p=>p.id==='openai')!;
+    const ads=openai.crawlers.find(a=>a.token==='oai-adsbot')!;
+    const user=openai.crawlers.find(a=>a.token==='chatgpt-user')!;
+    expect(ads.purpose).toBe('advertising');expect(isScoredPurpose(ads.purpose)).toBe(false);
+    expect(user.respectsRobots).toBe(false);
+    const report=providerAccess('User-agent: ChatGPT-User\nDisallow: /').find(p=>p.provider==='openai')!;
+    expect(report.agenticFetch).toBe('unknown');
+    expect(report.notes.join(' ')).toContain('stated preference');
   });
 });
 

@@ -1,6 +1,6 @@
 import {beforeEach,describe,expect,it} from 'vitest';
 import {assessAuthorizationReadiness} from '../src/standards/authorization';
-import {CURRENT_MCP_VERSION,factByKey,queueStaleRegistryFacts,registrySnapshot,STANDARDS_REGISTRY_VERSION} from '../src/standards/registry';
+import {CURRENT_MCP_VERSION,CURRENT_UCP_VERSION,factByKey,queueStaleRegistryFacts,registrySnapshot,STANDARDS_REGISTRY_VERSION} from '../src/standards/registry';
 import {fakeEnv} from './helpers/env';
 import type {Env} from '../src/types';
 
@@ -15,6 +15,7 @@ describe('the versioned standards/provider registry',()=>{
       expect(fact.version).toBeTruthy();expect(fact.effectiveBasis).not.toBe('unknown');
     }
     expect(factByKey('mcp.core')?.version).toBe(CURRENT_MCP_VERSION);
+    expect(factByKey('ucp.core')?.version).toBe(CURRENT_UCP_VERSION);
   });
 
   it('turns stale evidence into unknown rather than merchant failure',()=>{

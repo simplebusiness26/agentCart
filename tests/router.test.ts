@@ -62,6 +62,12 @@ describe('public routes',()=>{
     expect(res.status).toBe(200);
     expect((await res.json() as any).ok).toBe(true);
   });
+  it('publishes historical and current scanner benchmarks without merchant data',async()=>{
+    const phase29=await get('/api/readiness/benchmark?throughPhase=29');expect(phase29.status).toBe(200);
+    const oldBody:any=await phase29.json();expect(oldBody.peecCapabilities).toBeGreaterThanOrEqual(28);expect(oldBody.releaseBlockers).toBe(0);expect(oldBody.milestoneReady).toBe(true);
+    const current=await get('/api/readiness/benchmark');expect(current.status).toBe(200);
+    const currentBody:any=await current.json();expect(currentBody.releaseBlockers).toBeGreaterThan(0);expect(currentBody.milestoneReady).toBe(false);expect(currentBody.scope).toBe('current_market');
+  });
   it('404s an unknown path',async()=>{
     expect((await get('/nope')).status).toBe(404);
   });

@@ -193,8 +193,11 @@ capability and `payment_handlers`, because AgentCart does not take payment, hold
 merchant of record. A test asserts those keys stay absent — an omission is easy to "fix" by
 accident, and claiming a checkout capability that does not exist would strand an agent mid-purchase.
 
-Whether a Shopify storefront itself publishes `/.well-known/ucp` is a separate question and is
-**unverified**, so it is reported as `unknown` rather than assumed in either direction.
+Shopify storefront UCP publication is now verified: Shopify documents storefront discovery at
+`/.well-known/ucp`, UCP version `2026-08-25`, and the native MCP transport at
+`/api/ucp/mcp`. AgentCart must inspect the live merchant profile and advertised capabilities rather
+than treating Shopify-native UCP as unknown. AgentCart's hosted `/api/ai/<slug>/ucp` route remains a
+separate compatibility surface and must not be presented as Shopify's native UCP endpoint.
 
 ## Launch gate
 

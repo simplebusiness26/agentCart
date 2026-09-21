@@ -1,5 +1,7 @@
 # AgentReady Phases 18–21 — Business AI Sales Agent Build Plan
 
+> **Implementation update — 2026-09-18:** The credential-independent Business Brain, structured Sales Agent, grounded preview, regression suite, provider-neutral packaging and privacy-minimised conversation-event foundations are implemented on `codex/phases-18-29`. Production/provider verification remains separate. See `docs/PHASES_18_29_IMPLEMENTATION_STATUS.md`.
+
 Prepared 2026-09-18 from `main` at `0fbe3aa90775b1fb79b5111ea83b4089a5fb6c40`.
 
 ## Product direction

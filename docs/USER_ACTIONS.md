@@ -1,5 +1,20 @@
 # What the owner still needs to do
 
+## Phases 18–29 production completion
+
+The credential-independent implementation is documented in
+`docs/PHASES_18_29_IMPLEMENTATION_STATUS.md`. Do not recreate those modules manually.
+
+After deploying the branch, the owner actions are:
+
+1. Run `npm run db:migrate:remote` against the real D1 database.
+2. Deploy the Worker and confirm the deployed version contains migrations 0018–0020.
+3. Connect a Shopify development merchant, run a real sync, then open **AI Sales** and **Analytics & Growth** on a phone-width screen.
+4. Run Business Brain sync and the deterministic Sales Agent regression suite.
+5. Add provider/Search Console/log/CMS access only where the merchant has authorised it.
+6. Keep every emerging provider at Demo or Ready until a real supported provider activation has been verified.
+7. Run the existing production launch gate; do not mark Phases 18–29 Live from tests alone.
+
 Everything below requires access to an external account, a credential, an approval, or a legal/business decision. The code for these integrations is already in the repository.
 
 **Read this first.** The automated test suite is green and CI passes. Neither of those makes

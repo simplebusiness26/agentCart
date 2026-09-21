@@ -30,6 +30,11 @@ import { observableComparison, whyLosingReport } from "./aeo/competitive";
 import { algoliaAudit, runAuthorizedAlgoliaAudit, saveAlgoliaConnection } from "./algolia";
 import { PLATFORM_REGISTRY } from "./platform/registry";
 import { completeExperiment, createExperiment, outcomeProofSummary, recordJourneyEvidence, recordOutcomeEvent } from "./outcomes/proof";
+import { buildBusinessBrain, channelCapabilities, compileChannelPackage, ensureSalesAgent, getSalesAgent, groundedReply, publicFacts, runConversationRegression, setSalesAgentStatus, syncBusinessFacts, updateSalesAgent } from "./salesagent";
+import { benchmarkSummary, buildPathTo100, probeEmergingStandards } from "./readiness";
+import { createContentBrief, groundedDraft, listGrowthOpportunities, opportunitiesFromQuestions, saveGrowthOpportunity } from "./growth";
+import { ANALYTICS_EXPORT_COLUMNS, analyticsCsv, analyticsReport, createAnalyticsAction, evaluateShopping, fanoutsToGrowthOpportunities, perceptionFromResponse, recordCrawlObservation, recordPerception, recordPromptRun, recordShoppingObservation, syntheticFanouts } from "./analytics";
+import { handleAnalyticsMcp } from "./analytics/mcp";
 
 const html=(body:string,status=200,headers:HeadersInit={})=>new Response(body,{status,headers:{"content-type":"text/html; charset=utf-8","x-content-type-options":"nosniff","referrer-policy":"strict-origin-when-cross-origin","permissions-policy":"camera=(), microphone=(), geolocation=()","content-security-policy":"default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; connect-src 'self'; form-action 'self'; frame-ancestors 'none'; base-uri 'none'",...headers}});
 const json=(data:unknown,status=200,headers:HeadersInit={})=>new Response(JSON.stringify(data),{status,headers:{"content-type":"application/json; charset=utf-8","cache-control":"no-store",...headers}});
@@ -237,6 +242,162 @@ async function route(request:Request,env:Env):Promise<Response>{
     const demo=url.searchParams.get("demo")==="1";
     const shop=demo?null:await sessionShop(request,env);
     return html(dashboardPage(demo,shop,url.searchParams.get("pixel")==="failed"));
+  }
+
+  // Phases 18-21: one canonical Business Brain and a merchant-controlled, provider-neutral
+  // Sales Agent. Preview and regression routes use only verified first-party facts. They do
+  // not need a paid model and cannot execute a purchase.
+  if(request.method==="GET"&&path==="/api/business-brain"){
+    const shop=await sessionShop(request,env);if(!shop)return json({error:"No connected Shopify session."},401);
+    try{const brain=await buildBusinessBrain(env,shop);return json({version:brain.version,name:brain.name,website:brain.website,
+      generatedMs:brain.generatedMs,factCount:brain.facts.length,itemCount:brain.items.length,policyKeys:Object.keys(brain.policies),
+      facts:publicFacts(brain).slice(0,100),note:"Every fact retains source, freshness and public-safety provenance."});}
+    catch(e){return json({error:e instanceof Error?e.message:"Could not build the Business Brain."},409);}
+  }
+
+  if(request.method==="POST"&&path==="/api/business-brain/sync"){
+    const shop=await sessionShop(request,env);if(!shop)return json({error:"No connected Shopify session."},401);
+    try{const brain=await buildBusinessBrain(env,shop);return json({version:brain.version,facts:await syncBusinessFacts(env,brain),items:brain.items.length});}
+    catch(e){return json({error:e instanceof Error?e.message:"Could not sync the Business Brain."},409);}
+  }
+
+  if(path==="/api/sales-agent"&&(request.method==="GET"||request.method==="POST")){
+    const shop=await sessionShop(request,env);if(!shop)return json({error:"No connected Shopify session."},401);
+    try{
+      const brain=await buildBusinessBrain(env,shop);let agent=await ensureSalesAgent(env,shop,brain.name);
+      if(request.method==="POST"){
+        const body=await request.json<any>().catch(()=>({}));
+        if(body.status&&["draft","active","paused"].includes(String(body.status)))agent=await setSalesAgentStatus(env,shop,body.status);
+        else agent=await updateSalesAgent(env,shop,{displayName:body.displayName,purpose:body.purpose,tone:Array.isArray(body.tone)?body.tone:undefined,
+          supportedIntents:Array.isArray(body.supportedIntents)?body.supportedIntents:undefined,allowedScopes:Array.isArray(body.allowedScopes)?body.allowedScopes:undefined,
+          allowedActions:Array.isArray(body.allowedActions)?body.allowedActions:undefined,unsupportedTopics:Array.isArray(body.unsupportedTopics)?body.unsupportedTopics:undefined,
+          escalation:body.escalation&&typeof body.escalation==="object"?body.escalation:undefined,locale:body.locale});
+      }
+      return json({agent,brain:{version:brain.version,facts:brain.facts.length,items:brain.items.length,lastGenerated:brain.generatedMs},channels:channelCapabilities(),
+        rule:"Unknown facts are refused; public writes stay disabled unless explicitly implemented and authorised."},request.method==="POST"?200:200);
+    }catch(e){return json({error:e instanceof Error?e.message:"Could not load the Sales Agent."},409);}
+  }
+
+  if(request.method==="POST"&&path==="/api/sales-agent/preview"){
+    const shop=await sessionShop(request,env);if(!shop)return json({error:"No connected Shopify session."},401);
+    const body=await request.json<{message?:string}>().catch(()=>({} as {message?:string}));
+    if(!String(body.message||"").trim())return json({error:"Enter a customer question."},400);
+    try{const brain=await buildBusinessBrain(env,shop),agent=await ensureSalesAgent(env,shop,brain.name);
+      return json({mode:"preview",reply:groundedReply(brain,agent,String(body.message)),brainVersion:brain.version,agentVersion:agent.version,
+        note:"Preview output uses deterministic grounded retrieval. It is not a live provider conversation."});}
+    catch(e){return json({error:e instanceof Error?e.message:"Preview failed."},409);}
+  }
+
+  if(request.method==="POST"&&path==="/api/sales-agent/test"){
+    const shop=await sessionShop(request,env);if(!shop)return json({error:"No connected Shopify session."},401);
+    try{const brain=await buildBusinessBrain(env,shop),agent=await ensureSalesAgent(env,shop,brain.name);
+      return json(await runConversationRegression(env,brain,agent));}
+    catch(e){return json({error:e instanceof Error?e.message:"Conversation regression failed."},409);}
+  }
+
+  if(request.method==="GET"&&path==="/api/sales-agent/package"){
+    const shop=await sessionShop(request,env);if(!shop)return json({error:"No connected Shopify session."},401);
+    try{const brain=await buildBusinessBrain(env,shop),agent=await ensureSalesAgent(env,shop,brain.name),channel=url.searchParams.get("channel")||"agentready_hosted";
+      return json(compileChannelPackage(brain,agent,channel));}
+    catch(e){return json({error:e instanceof Error?e.message:"Could not compile the channel package."},400);}
+  }
+
+  if(request.method==="POST"&&path==="/api/sales-agent/events"){
+    const shop=await sessionShop(request,env);if(!shop)return json({error:"No connected Shopify session."},401);
+    const body=await request.json<any>().catch(()=>({}));
+    const allowed=new Set(["conversation_started","product_presented","service_presented","clarification_requested","handoff_offered","handoff_opened","quote_requested","contact_requested","booking_handoff","booking_confirmed","cart_handoff","order_verified","human_escalation","conversation_failed"]);
+    if(!allowed.has(String(body.eventType||"")))return json({error:"Unsupported conversation event."},400);
+    const agent=await getSalesAgent(env,shop),now=Date.now(),id=`ce_${now.toString(36)}_${Math.random().toString(36).slice(2,8)}`;
+    const summary=body.summary&&typeof body.summary==="object"?Object.fromEntries(Object.entries(body.summary).filter(([k,v])=>["itemId","intent","result","errorCode"].includes(k)&&["string","number","boolean"].includes(typeof v))):{};
+    await env.DB.prepare(`INSERT INTO conversation_events(id,shop_domain,journey_id,agent_id,channel,event_type,intent_class,evidence_tier,handoff_id,summary_json,occurred_ms)
+      VALUES(?,?,?,?,?,?,?,?,?,?,?)`).bind(id,shop,body.journeyId?String(body.journeyId).slice(0,300):null,agent?.id||null,String(body.channel||"agentready_hosted").slice(0,80),
+      String(body.eventType),body.intentClass?String(body.intentClass).slice(0,120):null,String(body.evidenceTier||"reported").slice(0,80),body.handoffId?String(body.handoffId).slice(0,300):null,JSON.stringify(summary),now).run();
+    return json({id,stored:"event_summary_only"},201);
+  }
+
+  // Scanner Superset and Path to 100. The benchmark is public; merchant probes are
+  // authenticated and test the connected canonical site rather than an arbitrary target.
+  if(request.method==="GET"&&path==="/api/readiness/benchmark"){const raw=url.searchParams.get("throughPhase"),phase=raw===null?Number.POSITIVE_INFINITY:Number(raw);return json(benchmarkSummary(Number.isInteger(phase)&&phase>=0?phase:Number.POSITIVE_INFINITY));}
+  if(request.method==="POST"&&path==="/api/readiness/path-to-100"){
+    const shop=await sessionShop(request,env);if(!shop)return json({error:"No connected Shopify session."},401);
+    const profile=await getBusinessProfile(env,shop),target=String(profile?.primary_url||"");
+    if(!target)return json({error:"Sync a public business website first."},409);
+    try{const report=await assessSite(target),emerging=await probeEmergingStandards(target);return json({report:{domain:report.domain,score:report.score,grade:report.grade},path:buildPathTo100(report),emerging});}
+    catch(e){return json({error:e instanceof Error?e.message:"Readiness probe failed."},400);}
+  }
+
+  // Phases 22-24: one evidence-backed opportunity queue and a grounded, approval-first
+  // content preview. Publishing adapters remain disabled until real CMS authorisation exists.
+  if(path==="/api/growth"&&(request.method==="GET"||request.method==="POST")){
+    const shop=await sessionShop(request,env);if(!shop)return json({error:"No connected Shopify session."},401);
+    if(request.method==="GET")return json({opportunities:await listGrowthOpportunities(env,shop)});
+    const body=await request.json<{questions?:string[];source?:any}>().catch(()=>({} as {questions?:string[];source?:any}));const created=[] as string[];
+    for(const opportunity of opportunitiesFromQuestions(Array.isArray(body.questions)?body.questions:[],body.source||"customer_question"))created.push(await saveGrowthOpportunity(env,shop,opportunity));
+    return json({created,opportunities:await listGrowthOpportunities(env,shop)},201);
+  }
+
+  if(request.method==="POST"&&path==="/api/growth/brief"){
+    const shop=await sessionShop(request,env);if(!shop)return json({error:"No connected Shopify session."},401);
+    const body=await request.json<any>().catch(()=>({}));if(!String(body.query||"").trim())return json({error:"A query or customer question is required."},400);
+    try{const brain=await buildBusinessBrain(env,shop),opportunity=opportunitiesFromQuestions([String(body.query)],body.source||"customer_question")[0];
+      const brief=createContentBrief(opportunity,brain,body.targetPage?String(body.targetPage):undefined);return json({brief,draft:groundedDraft(brief,brain),
+        publishing:{state:"approval_required",note:"No live CMS write occurs from this preview route."}});}
+    catch(e){return json({error:e instanceof Error?e.message:"Could not create the grounded content brief."},409);}
+  }
+
+  // Phases 25-29: atomic visibility observations, evidence-labelled fanouts, sources,
+  // crawler logs, shopping checks, action routing, export and authenticated MCP access.
+  if(request.method==="GET"&&path==="/api/analytics"){
+    const shop=await sessionShop(request,env);if(!shop)return json({error:"No connected Shopify session."},401);
+    return json(await analyticsReport(env,shop));
+  }
+  if(request.method==="POST"&&path==="/api/analytics/prompt-runs"){
+    const shop=await sessionShop(request,env);if(!shop)return json({error:"No connected Shopify session."},401);
+    const body=await request.json<any>().catch(()=>({}));
+    try{return json({runId:await recordPromptRun(env,shop,body)},201);}
+    catch(e){return json({error:e instanceof Error?e.message:"Could not record the prompt run."},400);}
+  }
+  if(request.method==="POST"&&path==="/api/analytics/fanouts/synthetic"){
+    const shop=await sessionShop(request,env);if(!shop)return json({error:"No connected Shopify session."},401);
+    const body=await request.json<any>().catch(()=>({}));if(!String(body.prompt||"").trim())return json({error:"A parent prompt is required."},400);
+    const fanouts=syntheticFanouts(String(body.prompt),body.context||{});const opportunities=body.createOpportunities?await fanoutsToGrowthOpportunities(env,shop,fanouts):[];
+    return json({source:"agentready_synthetic",fanouts,opportunities,note:"Planning fanouts are not observed provider behaviour."},201);
+  }
+  if(request.method==="POST"&&path==="/api/analytics/crawlers"){
+    const shop=await sessionShop(request,env);if(!shop)return json({error:"No connected Shopify session."},401);
+    const body=await request.json<any>().catch(()=>({}));
+    try{return json({id:await recordCrawlObservation(env,shop,{sourceAdapter:body.sourceAdapter,bot:String(body.bot||""),provider:body.provider,purpose:body.purpose,
+      path:String(body.path||""),status:body.status==null?undefined:Number(body.status),latencyMs:body.latencyMs==null?undefined:Number(body.latencyMs),bytes:body.bytes==null?undefined:Number(body.bytes),
+      errorCode:body.errorCode,evidenceTier:body.evidenceTier||"authorised_import",observedMs:Number(body.observedMs)||Date.now()})},201);}
+    catch(e){return json({error:e instanceof Error?e.message:"Could not record crawler evidence."},400);}
+  }
+  if(request.method==="POST"&&path==="/api/analytics/perception"){
+    const shop=await sessionShop(request,env);if(!shop)return json({error:"No connected Shopify session."},401);
+    const body=await request.json<any>().catch(()=>({}));
+    try{const brain=await buildBusinessBrain(env,shop),observation=perceptionFromResponse(String(body.response||""),String(body.subject||brain.name),brain);
+      return json({observation,stored:await recordPerception(env,shop,body.runId?String(body.runId):null,observation)},201);}
+    catch(e){return json({error:e instanceof Error?e.message:"Could not evaluate perception."},400);}
+  }
+  if(request.method==="POST"&&path==="/api/analytics/shopping"){
+    const shop=await sessionShop(request,env);if(!shop)return json({error:"No connected Shopify session."},401);
+    const body=await request.json<any>().catch(()=>({}));
+    try{const brain=await buildBusinessBrain(env,shop),result=evaluateShopping({itemId:String(body.itemId||""),prompt:String(body.prompt||""),visible:!!body.visible,
+      position:body.position==null?undefined:Number(body.position),quotedPrice:body.quotedPrice==null?undefined:Number(body.quotedPrice),currency:body.currency,
+      competitors:Array.isArray(body.competitors)?body.competitors:[],attributes:Array.isArray(body.attributes)?body.attributes:[],sourceUrls:Array.isArray(body.sourceUrls)?body.sourceUrls:[]},brain);
+      const id=await recordShoppingObservation(env,shop,body.runId?String(body.runId):null,result,body.evidenceTier||"manual");
+      if(result.action)await createAnalyticsAction(env,shop,{sourceType:"shopping_price_mismatch",sourceId:id,route:"catalog",title:result.action.title,evidence:result.action.evidence,expectedMetric:"quoted_price_accuracy",confidence:1,owner:"merchant_or_platform",verification:result.action.verification,rollbackAvailable:false});
+      return json({id,result},201);}
+    catch(e){return json({error:e instanceof Error?e.message:"Could not record shopping evidence."},400);}
+  }
+  if(request.method==="GET"&&path==="/api/analytics/export.csv"){
+    const shop=await sessionShop(request,env);if(!shop)return json({error:"No connected Shopify session."},401);
+    const rows=await env.DB.prepare(`SELECT ${ANALYTICS_EXPORT_COLUMNS.join(",")} FROM visibility_prompt_runs WHERE shop_domain=? ORDER BY observed_ms DESC LIMIT 10000`).bind(shop).all<Record<string,unknown>>();
+    return new Response(analyticsCsv(rows.results),{headers:{"content-type":"text/csv; charset=utf-8","content-disposition":"attachment; filename=agentready-analytics.csv","cache-control":"no-store"}});
+  }
+  if(path==="/api/analytics/mcp"&&request.method==="POST"){
+    const shop=await sessionShop(request,env);if(!shop)return json({jsonrpc:"2.0",id:null,error:{code:-32001,message:"Authentication required."}},401);
+    let body:any={};try{body=await request.json();}catch{return json({jsonrpc:"2.0",id:null,error:{code:-32700,message:"Invalid JSON."}},400);}
+    const result=await handleAnalyticsMcp(env,shop,body,mcpContext(request));return result?json(result,mcpHttpStatus(result,modernMcpRequest(request,body))):new Response(null,{status:204});
   }
 
   if(request.method==="POST"&&path==="/api/sync"){
