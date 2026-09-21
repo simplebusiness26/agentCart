@@ -93,3 +93,18 @@ After this branch is deployed:
 6. Run the existing production launch gate.
 7. Verify Demo, Ready and Live labels against the deployed application.
 
+## 2026-09-21 market refresh
+
+Phases 18–29 remain code-complete against the benchmark they were built to on 2026-09-18. A fresh
+market/standards review found new post-benchmark work, documented in
+`docs/MARKET_REFRESH_2026_09_21_PHASES_30_32.md`.
+
+The benchmark API now supports phase-scoped truth: `benchmarkSummary(29)` preserves the completed
+Phase 29 gate, while the unscoped current-market view exposes newly discovered planned gaps rather
+than pretending the market stood still.
+
+Immediate factual corrections already applied on this branch include current OpenAI crawler
+semantics (including OAI-AdsBot and user-triggered ChatGPT fetch behaviour), UCP `2026-08-25`, and
+Shopify's now-verified native UCP discovery/MCP surface. Larger new capabilities are intentionally
+tracked as Phases 30–32 rather than being mislabeled as already implemented.
+
